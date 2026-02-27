@@ -48,7 +48,8 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string)
 		// 3. キャッシュを読む
 		entries, err := cacheStore.Read(backendType)
 		if err == cache.ErrCacheNotFound {
-			// キャッシュなし（初回）→ 空リストを返す（BG 更新は別途）
+			// キャッシュなし（初回）→ 次回補完のために BG でキャッシュ作成
+			_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", prefix)
 			return []string{}
 		} else if err != nil {
 			// ErrCacheNotFound 以外のエラー → stderr ログ、空リスト返す
@@ -84,6 +85,7 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 			for _, backendType := range []string{"ps", "psa"} {
 				entries, err := cacheStore.Read(backendType)
 				if err == cache.ErrCacheNotFound {
+					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", backendType+":/")
 					continue
 				} else if err != nil {
 					fmt.Fprintf(os.Stderr, "cache read error for %s: %v\n", backendType, err)
@@ -117,6 +119,8 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 
 		entries, err := cacheStore.Read(backendType)
 		if err == cache.ErrCacheNotFound {
+			// キャッシュなし（初回）→ 次回補完のために BG でキャッシュ作成
+			_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", prefix)
 			return []string{}
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "cache read error for %s: %v\n", backendType, err)

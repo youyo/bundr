@@ -338,6 +338,74 @@ func TestNewPrefixPredictor_CacheError(t *testing.T) {
 	}
 }
 
+// pred-cmd-T4: RefPredictor - ErrCacheNotFound → 空リスト + BG 起動
+func TestNewRefPredictor_CacheMiss_LaunchesBG(t *testing.T) {
+	store := &MockStore{} // ReadFunc なし → ErrCacheNotFound
+	bg := &MockBGLauncher{}
+	fn := newRefPredictor(store, bg)
+	candidates := fn("ps:/app")
+
+	if len(candidates) != 0 {
+		t.Errorf("expected empty slice on cache miss, got %v", candidates)
+	}
+	if len(bg.LaunchCalls) == 0 {
+		t.Error("expected BGLauncher to be called on ErrCacheNotFound")
+	}
+}
+
+// pred-cmd-T5: PrefixPredictor - prefix 指定、ErrCacheNotFound → 空リスト + BG 起動
+func TestNewPrefixPredictor_CacheMiss_LaunchesBG(t *testing.T) {
+	store := &MockStore{} // ReadFunc なし → ErrCacheNotFound
+	bg := &MockBGLauncher{}
+	fn := newPrefixPredictor(store, bg)
+	candidates := fn("ps:/app")
+
+	if len(candidates) != 0 {
+		t.Errorf("expected empty slice on cache miss, got %v", candidates)
+	}
+	if len(bg.LaunchCalls) == 0 {
+		t.Error("expected BGLauncher to be called on ErrCacheNotFound")
+	}
+}
+
+// pred-cmd-T6: PrefixPredictor - 空文字、片方が ErrCacheNotFound → 残りのキャッシュ返す + missing 側の BG 起動
+func TestNewPrefixPredictor_EmptyPrefixPartialCache_LaunchesBG(t *testing.T) {
+	store := &MockStore{
+		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
+			if backendType == "psa" {
+				return []cache.CacheEntry{{Path: "/app/advanced/KEY", StoreMode: "json"}}, nil
+			}
+			return nil, cache.ErrCacheNotFound // ps はキャッシュなし
+		},
+		LastRefreshedAtFunc: func(backendType string) time.Time {
+			return time.Now() // 最近更新済み（スロットリング内）
+		},
+	}
+
+	bg := &MockBGLauncher{}
+	fn := newPrefixPredictor(store, bg)
+	candidates := fn("")
+
+	// psa の候補のみ返る
+	if len(candidates) == 0 {
+		t.Fatal("expected non-empty candidates from psa")
+	}
+	for _, c := range candidates {
+		if !strings.HasPrefix(c, "psa:/") {
+			t.Errorf("unexpected non-psa candidate: %s", c)
+		}
+	}
+
+	// ps の ErrCacheNotFound で BG 起動が発生していること
+	if len(bg.LaunchCalls) == 0 {
+		t.Error("expected BGLauncher to be called for missing ps cache")
+	}
+	// psa はキャッシュあり（スロットリング内）なので BG 起動は ps の 1 回のみ
+	if len(bg.LaunchCalls) > 1 {
+		t.Errorf("expected exactly 1 BG launch (for ps), got %d", len(bg.LaunchCalls))
+	}
+}
+
 // pred-cmd-016: PrefixPredictor - 無効な prefix → 空リスト
 func TestNewPrefixPredictor_InvalidPrefix(t *testing.T) {
 	store := &MockStore{}

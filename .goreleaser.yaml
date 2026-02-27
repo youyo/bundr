@@ -23,3 +23,18 @@ snapshot:
 
 release:
   prerelease: auto
+
+brews:
+  - name: bundr
+    homepage: "https://github.com/youyo/bundr"
+    description: "AWS Parameter Store と Secrets Manager を統合する単一バイナリ Go CLI"
+    license: "MIT"
+    repository:
+      owner: youyo
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    install: |
+      bin.install "bundr"
+    test: |
+      system "#{bin}/bundr", "--help"

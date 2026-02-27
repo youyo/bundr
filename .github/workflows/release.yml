@@ -49,6 +49,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
       - name: Run goreleaser (snapshot)
         if: github.ref == 'refs/heads/main'
         uses: goreleaser/goreleaser-action@v6

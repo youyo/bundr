@@ -117,7 +117,7 @@ func TestRefPredictorSecretManager(t *testing.T) {
 	predictor := &refPredictor{store: store, bgLauncher: bgLauncher}
 
 	candidates := predictor.Predict(complete.Args{Last: "sm:my-secret"})
-	if candidates != nil && len(candidates) != 0 {
+	if len(candidates) != 0 {
 		t.Errorf("expected empty list for sm: prefix, got %v", candidates)
 	}
 }
@@ -189,7 +189,7 @@ func TestPrefixPredictorEmpty(t *testing.T) {
 	predictor := cmd.NewPrefixPredictor(store, bgLauncher)
 
 	candidates := predictor.Predict(complete.Args{Last: ""})
-	if candidates == nil || len(candidates) == 0 {
+	if len(candidates) == 0 {
 		t.Fatal("expected non-empty candidates for empty prefix")
 	}
 

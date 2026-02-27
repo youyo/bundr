@@ -13,9 +13,71 @@ import (
 	"github.com/youyo/bundr/internal/tags"
 )
 
+// VarsBuildOptions holds options for buildVars.
+type VarsBuildOptions struct {
+	From           string
+	FlattenDelim   string
+	ArrayMode      string
+	ArrayJoinDelim string
+	Upper          bool
+	NoFlatten      bool
+}
+
+// buildVars fetches parameters from the given prefix and returns a key→value map.
+// Used by both ExportCmd and RunCmd.
+func buildVars(ctx context.Context, appCtx *Context, opts VarsBuildOptions) (map[string]string, error) {
+	ref, err := backend.ParseRef(opts.From)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ref: %w", err)
+	}
+
+	if ref.Type == backend.BackendTypeSM {
+		return nil, fmt.Errorf("sm: backend is not supported (use ps: or psa:)")
+	}
+
+	b, err := appCtx.BackendFactory(ref.Type)
+	if err != nil {
+		return nil, fmt.Errorf("create backend: %w", err)
+	}
+
+	entries, err := b.GetByPrefix(ctx, ref.Path, backend.GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		return nil, err
+	}
+
+	flatOpts := flatten.Options{
+		Delimiter:      opts.FlattenDelim,
+		ArrayMode:      opts.ArrayMode,
+		ArrayJoinDelim: opts.ArrayJoinDelim,
+		Upper:          opts.Upper,
+		NoFlatten:      opts.NoFlatten,
+	}
+
+	vars := make(map[string]string)
+
+	for _, entry := range entries {
+		keyPrefix := pathToKey(entry.Path, ref.Path, opts.FlattenDelim)
+
+		if entry.StoreMode == tags.StoreModeJSON && !opts.NoFlatten {
+			kvs, err := flatten.Flatten(keyPrefix, entry.Value, flatOpts)
+			if err != nil {
+				return nil, fmt.Errorf("flatten %s: %w", entry.Path, err)
+			}
+			for k, v := range kvs {
+				vars[k] = v
+			}
+		} else {
+			normalizedKey := flatten.ApplyCasing(keyPrefix, flatOpts)
+			vars[normalizedKey] = entry.Value
+		}
+	}
+
+	return vars, nil
+}
+
 // ExportCmd represents the "export" subcommand.
 type ExportCmd struct {
-	From           string `required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
+	From           string `arg:"" required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
 	Format         string `default:"shell" enum:"shell,dotenv,direnv" help:"Output format"`
 	NoFlatten      bool   `name:"no-flatten" help:"Disable JSON flattening"`
 	ArrayMode      string `default:"join" enum:"join,index,json" help:"Array handling mode"`
@@ -32,50 +94,16 @@ func (c *ExportCmd) Run(appCtx *Context) error {
 		c.out = os.Stdout
 	}
 
-	ref, err := backend.ParseRef(c.From)
-	if err != nil {
-		return fmt.Errorf("export command failed: invalid ref: %w", err)
-	}
-
-	if ref.Type == backend.BackendTypeSM {
-		return fmt.Errorf("export command failed: sm: backend is not supported (use ps: or psa:)")
-	}
-
-	b, err := appCtx.BackendFactory(ref.Type)
-	if err != nil {
-		return fmt.Errorf("export command failed: create backend: %w", err)
-	}
-
-	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{Recursive: true})
-	if err != nil {
-		return fmt.Errorf("export command failed: %w", err)
-	}
-
-	flatOpts := flatten.Options{
-		Delimiter:      c.FlattenDelim,
+	vars, err := buildVars(context.Background(), appCtx, VarsBuildOptions{
+		From:           c.From,
+		FlattenDelim:   c.FlattenDelim,
 		ArrayMode:      c.ArrayMode,
 		ArrayJoinDelim: c.ArrayJoinDelim,
 		Upper:          c.Upper,
 		NoFlatten:      c.NoFlatten,
-	}
-
-	vars := make(map[string]string)
-
-	for _, entry := range entries {
-		keyPrefix := pathToKey(entry.Path, ref.Path, c.FlattenDelim)
-
-		if entry.StoreMode == tags.StoreModeJSON && !c.NoFlatten {
-			kvs, err := flatten.Flatten(keyPrefix, entry.Value, flatOpts)
-			if err != nil {
-				return fmt.Errorf("export command failed: flatten %s: %w", entry.Path, err)
-			}
-			for k, v := range kvs {
-				vars[k] = v
-			}
-		} else {
-			normalizedKey := flatten.ApplyCasing(keyPrefix, flatOpts)
-			vars[normalizedKey] = entry.Value
-		}
+	})
+	if err != nil {
+		return fmt.Errorf("export command failed: %w", err)
 	}
 
 	keys := make([]string, 0, len(vars))

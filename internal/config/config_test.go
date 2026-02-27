@@ -202,3 +202,87 @@ region = "ap-northeast-1"
 		t.Errorf("expected profile %q, got %q", "global-profile", cfg.AWS.Profile)
 	}
 }
+
+func TestApplyCLIOverrides(t *testing.T) {
+	t.Run("cfg-001: CLIフラグで空のベース設定を上書き", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyCLIOverrides(cfg, "ap-northeast-1", "", "")
+		if cfg.AWS.Region != "ap-northeast-1" {
+			t.Errorf("expected region %q, got %q", "ap-northeast-1", cfg.AWS.Region)
+		}
+	})
+
+	t.Run("cfg-002: CLIフラグがファイル設定より優先", func(t *testing.T) {
+		cfg := &Config{AWS: AWSConfig{Region: "us-east-1"}}
+		ApplyCLIOverrides(cfg, "ap-northeast-1", "", "")
+		if cfg.AWS.Region != "ap-northeast-1" {
+			t.Errorf("expected region %q, got %q", "ap-northeast-1", cfg.AWS.Region)
+		}
+	})
+
+	t.Run("cfg-003: CLIフラグが空の場合はベース設定を保持", func(t *testing.T) {
+		cfg := &Config{AWS: AWSConfig{Region: "us-east-1"}}
+		ApplyCLIOverrides(cfg, "", "", "")
+		if cfg.AWS.Region != "us-east-1" {
+			t.Errorf("expected region %q, got %q", "us-east-1", cfg.AWS.Region)
+		}
+	})
+
+	t.Run("cfg-004: profileの上書き", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyCLIOverrides(cfg, "", "my-profile", "")
+		if cfg.AWS.Profile != "my-profile" {
+			t.Errorf("expected profile %q, got %q", "my-profile", cfg.AWS.Profile)
+		}
+	})
+
+	t.Run("cfg-005: kmsKeyIDの上書き", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyCLIOverrides(cfg, "", "", "arn:aws:kms:ap-northeast-1:123456789012:key/test")
+		if cfg.AWS.KMSKeyID != "arn:aws:kms:ap-northeast-1:123456789012:key/test" {
+			t.Errorf("expected kmsKeyID %q, got %q", "arn:aws:kms:ap-northeast-1:123456789012:key/test", cfg.AWS.KMSKeyID)
+		}
+	})
+
+	t.Run("cfg-006: 全フラグ同時指定", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyCLIOverrides(cfg, "ap-northeast-1", "prod", "key-1")
+		if cfg.AWS.Region != "ap-northeast-1" {
+			t.Errorf("expected region %q, got %q", "ap-northeast-1", cfg.AWS.Region)
+		}
+		if cfg.AWS.Profile != "prod" {
+			t.Errorf("expected profile %q, got %q", "prod", cfg.AWS.Profile)
+		}
+		if cfg.AWS.KMSKeyID != "key-1" {
+			t.Errorf("expected kmsKeyID %q, got %q", "key-1", cfg.AWS.KMSKeyID)
+		}
+	})
+
+	t.Run("cfg-007: 全フラグが空文字のとき変更なし", func(t *testing.T) {
+		cfg := &Config{AWS: AWSConfig{Region: "us-east-1", Profile: "existing", KMSKeyID: "existing-key"}}
+		ApplyCLIOverrides(cfg, "", "", "")
+		if cfg.AWS.Region != "us-east-1" {
+			t.Errorf("expected region %q, got %q", "us-east-1", cfg.AWS.Region)
+		}
+		if cfg.AWS.Profile != "existing" {
+			t.Errorf("expected profile %q, got %q", "existing", cfg.AWS.Profile)
+		}
+		if cfg.AWS.KMSKeyID != "existing-key" {
+			t.Errorf("expected kmsKeyID %q, got %q", "existing-key", cfg.AWS.KMSKeyID)
+		}
+	})
+
+	t.Run("cfg-008: regionのみ指定、他は空", func(t *testing.T) {
+		cfg := &Config{AWS: AWSConfig{Profile: "existing-profile", KMSKeyID: "existing-key"}}
+		ApplyCLIOverrides(cfg, "ap-northeast-1", "", "")
+		if cfg.AWS.Region != "ap-northeast-1" {
+			t.Errorf("expected region %q, got %q", "ap-northeast-1", cfg.AWS.Region)
+		}
+		if cfg.AWS.Profile != "existing-profile" {
+			t.Errorf("expected profile %q, got %q", "existing-profile", cfg.AWS.Profile)
+		}
+		if cfg.AWS.KMSKeyID != "existing-key" {
+			t.Errorf("expected kmsKeyID %q, got %q", "existing-key", cfg.AWS.KMSKeyID)
+		}
+	})
+}

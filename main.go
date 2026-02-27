@@ -48,10 +48,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 2. BackendFactory 構築
-	factory := newBackendFactory(cfg)
-
-	// 3. CacheStore 構築（失敗時は補完を無効にして通常 CLI を継続）
+	// 2. CacheStore 構築（失敗時は補完を無効にして通常 CLI を継続）
 	var cacheStore cache.Store
 	if fs, fsErr := cache.NewFileStore(); fsErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: cache init failed (completion disabled): %v\n", fsErr)
@@ -60,18 +57,13 @@ func main() {
 		cacheStore = fs
 	}
 
-	// 4. BGLauncher 構築
+	// 3. BGLauncher 構築
 	bgLauncher := &cmd.ExecBGLauncher{}
 
+	// 4. Kong パーサー構築
 	cli := cmd.CLI{}
 	parser := kong.Must(&cli,
 		kong.Name("bundr"),
-		kong.Bind(&cmd.Context{
-			Config:         cfg,
-			BackendFactory: factory,
-			CacheStore:     cacheStore,
-			BGLauncher:     bgLauncher,
-		}),
 	)
 
 	// 5. kongplete で補完リクエストを処理
@@ -80,13 +72,20 @@ func main() {
 		kongplete.WithPredictor("prefix", &prefixPredictor{store: cacheStore, bgLauncher: bgLauncher}),
 	)
 
-	// 6. 通常コマンドを解析・実行
+	// 6. 通常コマンドを解析（cli.Region 等が確定する）
 	kctx, err := parser.Parse(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "parse error: %v\n", err)
 		os.Exit(1)
 	}
 
+	// 7. CLI フラグで設定をオーバーライド（CLI flags > env vars > TOML）
+	config.ApplyCLIOverrides(cfg, cli.Region, cli.Profile, cli.KMSKeyID)
+
+	// 8. BackendFactory 構築（最終的な cfg で）
+	factory := newBackendFactory(cfg)
+
+	// 9. コマンドを実行
 	err = kctx.Run(&cmd.Context{
 		Config:         cfg,
 		BackendFactory: factory,

@@ -95,6 +95,20 @@ func loadTOML(dir, name string, cfg *Config) error {
 	return nil
 }
 
+// ApplyCLIOverrides は CLI フラグの値で設定をオーバーライドする。
+// 空文字の引数は無視される（既存設定を保持）。
+func ApplyCLIOverrides(cfg *Config, region, profile, kmsKeyID string) {
+	if region != "" {
+		cfg.AWS.Region = region
+	}
+	if profile != "" {
+		cfg.AWS.Profile = profile
+	}
+	if kmsKeyID != "" {
+		cfg.AWS.KMSKeyID = kmsKeyID
+	}
+}
+
 // applyEnvOverrides は環境変数の値で設定をオーバーライドする。
 func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("BUNDR_AWS_REGION"); v != "" {

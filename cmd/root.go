@@ -14,6 +14,10 @@ import (
 
 // CLI is the Kong root command structure.
 type CLI struct {
+	Region   string `help:"AWS region (overrides config and env)" env:"BUNDR_AWS_REGION" optional:"" name:"region"`
+	Profile  string `help:"AWS profile (overrides config and env)" env:"BUNDR_AWS_PROFILE" optional:"" name:"profile"`
+	KMSKeyID string `help:"KMS key ID or ARN for encryption" env:"BUNDR_AWS_KMS_KEY_ID" optional:"" name:"kms-key-id"`
+
 	Put                PutCmd                       `cmd:"" help:"Store a value to AWS Parameter Store or Secrets Manager."`
 	Get                GetCmd                       `cmd:"" help:"Get a value from a backend."`
 	Export             ExportCmd                    `cmd:"" help:"Export parameters as environment variables."`

@@ -278,6 +278,23 @@ func TestBuild(t *testing.T) {
 			autoConvert: true,
 			wantJSON:    `{"db-host":"val"}`,
 		},
+		// NaN/Inf テスト
+		{
+			id: "J-18",
+			entries: []jsonize.Entry{
+				{Path: "VALUE", Value: "NaN", StoreMode: "raw"},
+			},
+			autoConvert: true,
+			wantJSON:    `{"value":"NaN"}`,
+		},
+		{
+			id: "J-19",
+			entries: []jsonize.Entry{
+				{Path: "VALUE", Value: "Inf", StoreMode: "raw"},
+			},
+			autoConvert: true,
+			wantJSON:    `{"value":"Inf"}`,
+		},
 	}
 
 	for _, tc := range tests {

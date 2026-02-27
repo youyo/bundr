@@ -40,6 +40,12 @@ func (c *JsonizeCmd) Run(appCtx *Context) error {
 		return fmt.Errorf("jsonize command failed: invalid target ref: %w", err)
 	}
 
+	// 自己参照チェック: target が frompath 配下にある場合はエラー
+	fromBase := strings.TrimRight(fromRef.Path, "/") + "/"
+	if strings.HasPrefix(targetRef.Path+"/", fromBase) || targetRef.Path == strings.TrimRight(fromRef.Path, "/") {
+		return fmt.Errorf("jsonize command failed: target %q is within --frompath %q (self-reference not allowed)", c.Target, c.Frompath)
+	}
+
 	// 4. frompath のバックエンドを作成
 	fromBackend, err := appCtx.BackendFactory(fromRef.Type)
 	if err != nil {

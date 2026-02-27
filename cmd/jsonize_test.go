@@ -343,6 +343,14 @@ func TestJsonizeCmd_Errors(t *testing.T) {
 		err := cmd.Run(appCtx)
 		assertErrContains(t, err, "check target existence")
 	})
+
+	t.Run("JCE-09-self-reference", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		// target が frompath 配下に存在する自己参照ケース
+		cmd := setupJsonizeCmd("ps:/app/prod/config", "ps:/app/prod/")
+		err := cmd.Run(appCtx)
+		assertErrContains(t, err, "self-reference not allowed")
+	})
 }
 
 // assertJSONEqual は2つの JSON 文字列が意味的に等しいことを検証する。

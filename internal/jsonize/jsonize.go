@@ -3,6 +3,7 @@ package jsonize
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -86,6 +87,10 @@ func autoConvertValue(raw string) interface{} {
 		return false
 	}
 	if f, err := strconv.ParseFloat(raw, 64); err == nil {
+		// NaN/Inf は json.Marshal できないので文字列のまま返す
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return raw
+		}
 		return f
 	}
 	return raw

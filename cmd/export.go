@@ -15,7 +15,7 @@ import (
 
 // ExportCmd represents the "export" subcommand.
 type ExportCmd struct {
-	From           string `required:"" help:"Source prefix (e.g. ps:/app/prod/)"`
+	From           string `required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
 	Format         string `default:"shell" enum:"shell,dotenv,direnv" help:"Output format"`
 	NoFlatten      bool   `name:"no-flatten" help:"Disable JSON flattening"`
 	ArrayMode      string `default:"join" enum:"join,index,json" help:"Array handling mode"`

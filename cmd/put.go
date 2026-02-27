@@ -9,7 +9,7 @@ import (
 
 // PutCmd represents the "put" subcommand.
 type PutCmd struct {
-	Ref    string `arg:"" help:"Target ref (e.g. ps:/app/prod/DB_HOST, sm:secret-id)"`
+	Ref    string `arg:"" predictor:"ref" help:"Target ref (e.g. ps:/app/prod/DB_HOST, sm:secret-id)"`
 	Value  string `short:"v" required:"" help:"Value to store"`
 	Store  string `short:"s" default:"raw" enum:"raw,json" help:"Storage mode (raw|json)"`
 	Secure bool   `help:"Use SecureString (SSM Parameter Store only)"`

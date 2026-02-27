@@ -7,9 +7,10 @@ import (
 
 // CLI is the Kong root command structure.
 type CLI struct {
-	Put    PutCmd    `cmd:"" help:"Store a value to AWS Parameter Store or Secrets Manager."`
-	Get    GetCmd    `cmd:"" help:"Get a value from a backend."`
-	Export ExportCmd `cmd:"" help:"Export parameters as environment variables."`
+	Put     PutCmd     `cmd:"" help:"Store a value to AWS Parameter Store or Secrets Manager."`
+	Get     GetCmd     `cmd:"" help:"Get a value from a backend."`
+	Export  ExportCmd  `cmd:"" help:"Export parameters as environment variables."`
+	Jsonize JsonizeCmd `cmd:"" help:"Build a nested JSON from parameter prefix and store it."`
 }
 
 // Context holds shared dependencies injected into all commands.

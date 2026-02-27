@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -93,6 +94,10 @@ func main() {
 		BGLauncher:     bgLauncher,
 	})
 	if err != nil {
+		var exitErr *cmd.ExitCodeError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.Code)
+		}
 		fmt.Fprintf(os.Stderr, "command failed: %v\n", err)
 		os.Exit(1)
 	}

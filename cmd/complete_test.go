@@ -5,17 +5,15 @@ import (
 )
 
 // cmd-complete-001 / cmd-complete-002:
-// kongplete.InstallCompletions は Kong がコマンドルートに組み込む構造体であり、
-// 実際のシェル設定ファイル操作を伴うため単体テストでの直接実行は困難。
-// ここでは CLI 構造体に InstallCompletions フィールドが正しく定義され、
+// CLI 構造体に Completion フィールド（CompletionCmd）が正しく定義され、
 // go build が通ることを確認するコンパイルテストを行う。
 
-// TestCLI_HasInstallCompletions は CLI 構造体に InstallCompletions フィールドが存在することを確認する。
-func TestCLI_HasInstallCompletions(t *testing.T) {
+// TestCLI_HasCompletionCmd は CLI 構造体に Completion フィールドが存在することを確認する。
+func TestCLI_HasCompletionCmd(t *testing.T) {
 	cli := &CLI{}
-	// InstallCompletions フィールドのゼロ値が存在することを確認
+	// Completion フィールドのゼロ値が存在することを確認
 	// (コンパイルが通ることが本質的なテスト)
-	_ = cli.InstallCompletions
+	_ = cli.Completion
 }
 
 // TestCLI_HasCacheCmd は CLI 構造体に Cache フィールドが存在することを確認する。

@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/willabides/kongplete"
 	"github.com/youyo/bundr/internal/backend"
 	"github.com/youyo/bundr/internal/cache"
 	"github.com/youyo/bundr/internal/config"
@@ -18,12 +17,14 @@ type CLI struct {
 	Profile  string `help:"AWS profile (overrides config and env)" env:"BUNDR_AWS_PROFILE" optional:"" name:"profile"`
 	KMSKeyID string `help:"KMS key ID or ARN for encryption" env:"BUNDR_AWS_KMS_KEY_ID" optional:"" name:"kms-key-id"`
 
-	Put                PutCmd                       `cmd:"" help:"Store a value to AWS Parameter Store or Secrets Manager."`
-	Get                GetCmd                       `cmd:"" help:"Get a value from a backend."`
-	Export             ExportCmd                    `cmd:"" help:"Export parameters as environment variables."`
-	Jsonize            JsonizeCmd                   `cmd:"" help:"Build a nested JSON from parameter prefix and store it."`
-	Cache              CacheCmd                     `cmd:"" help:"Manage local completion cache."`
-	InstallCompletions kongplete.InstallCompletions `cmd:"install-completions" help:"Install shell completions."`
+	Put        PutCmd        `cmd:"" help:"Store a value to AWS Parameter Store or Secrets Manager."`
+	Get        GetCmd        `cmd:"" help:"Get a value from a backend."`
+	Export     ExportCmd     `cmd:"" help:"Export parameters as environment variables."`
+	Ls         LsCmd         `cmd:"" help:"List parameter paths."`
+	Run        RunCmd        `cmd:"" help:"Run a command with parameters as environment variables."`
+	Completion CompletionCmd `cmd:"" help:"Output shell completion script."`
+	Jsonize    JsonizeCmd    `cmd:"" help:"Build a nested JSON from parameter prefix and store it."`
+	Cache      CacheCmd      `cmd:"" help:"Manage local completion cache."`
 }
 
 // BGLauncher はバックグラウンド更新プロセスの起動を抽象化する。

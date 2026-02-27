@@ -13,15 +13,15 @@ import (
 
 // CLI is the Kong root command structure.
 type CLI struct {
-	Region   string `help:"AWS region (overrides config and env)" env:"BUNDR_AWS_REGION" optional:"" name:"region"`
-	Profile  string `help:"AWS profile (overrides config and env)" env:"BUNDR_AWS_PROFILE" optional:"" name:"profile"`
-	KMSKeyID string `help:"KMS key ID or ARN for encryption" env:"BUNDR_AWS_KMS_KEY_ID" optional:"" name:"kms-key-id"`
+	Region   string `help:"AWS region (overrides all other region settings)" optional:"" name:"region"`
+	Profile  string `help:"AWS profile (overrides all other profile settings)" optional:"" name:"profile"`
+	KMSKeyID string `help:"KMS key ID or ARN for encryption" env:"BUNDR_KMS_KEY_ID" optional:"" name:"kms-key-id"`
 
 	Put        PutCmd        `cmd:"" help:"Store a value to AWS Parameter Store or Secrets Manager."`
 	Get        GetCmd        `cmd:"" help:"Get a value from a backend."`
 	Export     ExportCmd     `cmd:"" help:"Export parameters as environment variables."`
 	Ls         LsCmd         `cmd:"" help:"List parameter paths."`
-	Run        RunCmd        `cmd:"" help:"Run a command with parameters as environment variables."`
+	Exec       ExecCmd       `cmd:"" help:"Execute a command with parameters as environment variables."`
 	Completion CompletionCmd `cmd:"" help:"Output shell completion script."`
 	Jsonize    JsonizeCmd    `cmd:"" help:"Build a nested JSON from parameter prefix and store it."`
 	Cache      CacheCmd      `cmd:"" help:"Manage local completion cache."`

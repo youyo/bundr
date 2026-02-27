@@ -74,7 +74,12 @@ func main() {
 	)
 
 	// 6. 通常コマンドを解析（cli.Region 等が確定する）
-	kctx, err := parser.Parse(os.Args[1:])
+	// 引数なし実行時はヘルプを表示
+	args := os.Args[1:]
+	if len(args) == 0 {
+		args = []string{"--help"}
+	}
+	kctx, err := parser.Parse(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "parse error: %v\n", err)
 		os.Exit(1)

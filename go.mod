@@ -1,6 +1,6 @@
 module github.com/youyo/bundr
 
-go 1.25.7
+go 1.24
 
 require (
 	github.com/alecthomas/kong v1.14.0

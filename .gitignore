@@ -1,3 +1,6 @@
 bundr
 coverage.out
 *.out
+.claude/handover/
+tmp/*
+tmp_*

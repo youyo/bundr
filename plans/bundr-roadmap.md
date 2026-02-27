@@ -12,9 +12,9 @@
 | ステータス | 進行中 |
 
 ## Current Focus
-- **マイルストーン**: M2 - export + flatten ロジック
-- **直接の完了**: M1 実装完了 (43テスト全PASS、カバレッジ80%+)
-- **次のアクション**: `/plan` で M2 詳細計画を作成
+- **マイルストーン**: M5 - 設定階層 + CI/CD + リリース
+- **直接の完了**: M4 実装完了 (全テストPASS、cmd 86.9%/cache 87.3%カバレッジ、PR #2)
+- **次のアクション**: `/plan` で M5 詳細計画を作成
 
 ## Progress
 
@@ -30,24 +30,30 @@
 - 📄 詳細: plans/bundr-m01-scaffold-core-commands.md
 - 🌿 ブランチ: feat-m1-scaffold-core-commands (プッシュ済み)
 
-### M2: export + flatten ロジック
-- [ ] flatten エンジン実装 (objects: _ 区切り, arrays: join/index)
-- [ ] `bundr export` コマンド (shell/dotenv/direnv format)
-- [ ] flatten 単体テスト (エッジケース網羅)
-- 📄 詳細: (M2 着手時に生成)
+### M2: export + flatten ロジック ✅ 完了
+- [x] flatten エンジン実装 (objects: _ 区切り, arrays: join/index)
+- [x] `bundr export` コマンド (shell/dotenv/direnv format)
+- [x] flatten 単体テスト (エッジケース網羅) — カバレッジ 80.8%
+- 🌿 ブランチ: feat-m2-export-flatten (マージ済み)
 
-### M3: jsonize コマンド
-- [ ] prefix 配下パラメータ収集ロジック
-- [ ] パスベース nested JSON 構築
-- [ ] `bundr jsonize` コマンド実装
-- [ ] 単体テスト
-- 📄 詳細: (M3 着手時に生成)
+### M3: jsonize コマンド ✅ 完了
+- [x] prefix 配下パラメータ収集ロジック
+- [x] パスベース nested JSON 構築
+- [x] `bundr jsonize` コマンド実装
+- [x] 単体テスト — カバレッジ 96%/87%/83%
+- 🌿 ブランチ: feat-m3-jsonize (マージ済み)
 
-### M4: completion + cache システム
-- [ ] キャッシュシステム (~/.cache/bundr/, SWR 戦略, ファイルロック)
-- [ ] `bundr __complete` コマンド (prefix補完, secret名補完)
-- [ ] シェル統合 (bash/zsh)
-- 📄 詳細: (M4 着手時に生成)
+### M4: completion + cache システム ✅ 完了
+- [x] キャッシュシステム (~/.cache/bundr/, Always-Refresh-on-Read + 10秒スロットリング, syscall.Flock)
+- [x] `bundr cache refresh` コマンド
+- [x] `bundr install-completions` コマンド (bash/zsh)
+- [x] kongplete v0.4.0 統合 + CachePredictor
+- [x] BGLauncher インターフェース (ExecBGLauncher + MockBGLauncher)
+- [x] COMP_* 環境変数フィルタリング
+- [x] NoopStore フォールバック (non-fatal 初期化)
+- [x] 全テスト PASS — cmd 86.9% / cache 87.3%
+- 📄 詳細: plans/bundr-m04-completion-cache.md
+- 🌿 ブランチ: feat-m4-completion-cache (PR #2)
 
 ### M5: 設定階層 + CI/CD + リリース
 - [ ] 設定階層実装 (CLI flags > env vars > .bundr.toml > ~/.config/bundr/config.toml)
@@ -71,3 +77,6 @@
 |------|------|------|
 | 2026-02-27 12:30 | 作成 | ロードマップ初版作成 (スペック v1.1 ベース) |
 | 2026-02-27 13:10 | 完了 | M1 実装完了 (43テスト全PASS、カバレッジ80%+、ブランチ: feat-m1-scaffold-core-commands) |
+| 2026-02-27 | 完了 | M2 実装完了 (カバレッジ80.8%、ブランチ: feat-m2-export-flatten) |
+| 2026-02-27 | 完了 | M3 実装完了 (カバレッジ96%/87%/83%、ブランチ: feat-m3-jsonize) |
+| 2026-02-27 | 完了 | M4 実装完了 (cmd 86.9%/cache 87.3%、PR #2: feat-m4-completion-cache) |

@@ -3,31 +3,100 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
 	"github.com/alecthomas/kong"
+	"github.com/posener/complete"
+	"github.com/willabides/kongplete"
 	"github.com/youyo/bundr/cmd"
 	"github.com/youyo/bundr/internal/backend"
+	"github.com/youyo/bundr/internal/cache"
 	"github.com/youyo/bundr/internal/config"
 )
 
-func main() {
-	cli := cmd.CLI{}
-	kctx := kong.Parse(&cli)
+// refPredictor は ref-style 補完を実装した complete.Predictor。
+// cmd.NewRefPredictor へのシンラッパー。
+type refPredictor struct {
+	store      cache.Store
+	bgLauncher cmd.BGLauncher
+}
 
+func (p *refPredictor) Predict(a complete.Args) []string {
+	return cmd.NewRefPredictor(p.store, p.bgLauncher).Predict(a)
+}
+
+// prefixPredictor は prefix-style 補完を実装した complete.Predictor。
+// cmd.NewPrefixPredictor へのシンラッパー。
+type prefixPredictor struct {
+	store      cache.Store
+	bgLauncher cmd.BGLauncher
+}
+
+func (p *prefixPredictor) Predict(a complete.Args) []string {
+	return cmd.NewPrefixPredictor(p.store, p.bgLauncher).Predict(a)
+}
+
+func main() {
+	// 1. 設定ロード
 	cfg, err := config.Load()
 	if err != nil {
-		kctx.FatalIfErrorf(err)
+		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 2. BackendFactory 構築
+	factory := newBackendFactory(cfg)
+
+	// 3. CacheStore 構築（失敗時は補完を無効にして通常 CLI を継続）
+	var cacheStore cache.Store
+	if fs, fsErr := cache.NewFileStore(); fsErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: cache init failed (completion disabled): %v\n", fsErr)
+		cacheStore = cache.NewNoopStore()
+	} else {
+		cacheStore = fs
+	}
+
+	// 4. BGLauncher 構築
+	bgLauncher := &cmd.ExecBGLauncher{}
+
+	cli := cmd.CLI{}
+	parser := kong.Must(&cli,
+		kong.Name("bundr"),
+		kong.Bind(&cmd.Context{
+			Config:         cfg,
+			BackendFactory: factory,
+			CacheStore:     cacheStore,
+			BGLauncher:     bgLauncher,
+		}),
+	)
+
+	// 5. kongplete で補完リクエストを処理
+	kongplete.Complete(parser,
+		kongplete.WithPredictor("ref", &refPredictor{store: cacheStore, bgLauncher: bgLauncher}),
+		kongplete.WithPredictor("prefix", &prefixPredictor{store: cacheStore, bgLauncher: bgLauncher}),
+	)
+
+	// 6. 通常コマンドを解析・実行
+	kctx, err := parser.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "parse error: %v\n", err)
+		os.Exit(1)
 	}
 
 	err = kctx.Run(&cmd.Context{
 		Config:         cfg,
-		BackendFactory: newBackendFactory(cfg),
+		BackendFactory: factory,
+		CacheStore:     cacheStore,
+		BGLauncher:     bgLauncher,
 	})
-	kctx.FatalIfErrorf(err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "command failed: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // newBackendFactory returns a BackendFactory that creates real AWS backends.

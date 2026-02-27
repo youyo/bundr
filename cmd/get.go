@@ -9,7 +9,7 @@ import (
 
 // GetCmd represents the "get" subcommand.
 type GetCmd struct {
-	Ref  string `arg:"" help:"Target ref (e.g. ps:/app/prod/DB_HOST, sm:secret-id)"`
+	Ref  string `arg:"" predictor:"ref" help:"Target ref (e.g. ps:/app/prod/DB_HOST, sm:secret-id)"`
 	Raw  bool   `help:"Force raw output (ignore cli-store-mode tag)"`
 	JSON bool   `name:"json" help:"Force JSON decode output"`
 }

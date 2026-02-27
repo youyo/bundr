@@ -14,8 +14,8 @@ import (
 
 // JsonizeCmd represents the "jsonize" subcommand.
 type JsonizeCmd struct {
-	Target    string `arg:"" help:"Target ref to store the JSON (e.g. ps:/app/config, sm:app-config)"`
-	Frompath  string `required:"" help:"Source prefix (e.g. ps:/app/prod/)"`
+	Target    string `arg:"" predictor:"ref" help:"Target ref to store the JSON (e.g. ps:/app/config, sm:app-config)"`
+	Frompath  string `required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
 	Store     string `default:"json" enum:"raw,json" help:"Storage mode for target (raw|json)"`
 	ValueType string `default:"string" enum:"string,secure" help:"Value type (string|secure)"`
 	Force     bool   `help:"Overwrite target if it already exists"`

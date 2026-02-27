@@ -48,15 +48,11 @@ func LoadWithGlobalDir(projectDir, globalDir string) (*Config, error) {
 
 	// 1. グローバル設定 (最低優先)
 	if globalDir != "" {
-		if err := loadTOML(globalDir, "config", cfg); err == nil {
-			// loaded
-		}
+		_ = loadTOML(globalDir, "config", cfg)
 	}
 
 	// 2. プロジェクト設定 (グローバルより優先)
-	if err := loadTOML(projectDir, ".bundr", cfg); err == nil {
-		// loaded
-	}
+	_ = loadTOML(projectDir, ".bundr", cfg)
 
 	// 3. 環境変数 (最高優先)
 	applyEnvOverrides(cfg)

@@ -1,0 +1,30 @@
+version: 2
+
+builds:
+  - id: bundr
+    binary: bundr
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{incpatch .Version}}-next"
+
+release:
+  prerelease: auto

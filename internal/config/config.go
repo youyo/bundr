@@ -106,7 +106,16 @@ func ApplyCLIOverrides(cfg *Config, region, profile, kmsKeyID string) {
 }
 
 // applyEnvOverrides は環境変数の値で設定をオーバーライドする。
+// 優先順位: BUNDR_* > AWS_*（標準 AWS 環境変数はフォールバック）
 func applyEnvOverrides(cfg *Config) {
+	// 1. 標準 AWS 環境変数（フォールバック）
+	if v := os.Getenv("AWS_REGION"); v != "" {
+		cfg.AWS.Region = v
+	}
+	if v := os.Getenv("AWS_PROFILE"); v != "" {
+		cfg.AWS.Profile = v
+	}
+	// 2. BUNDR_* 環境変数（AWS_* より優先）
 	if v := os.Getenv("BUNDR_AWS_REGION"); v != "" {
 		cfg.AWS.Region = v
 	}

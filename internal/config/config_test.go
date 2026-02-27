@@ -8,6 +8,8 @@ import (
 
 func TestLoadDefaults(t *testing.T) {
 	// 環境変数をクリーンにする
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_REGION", "")
 	t.Setenv("BUNDR_AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_KMS_KEY_ID", "")
@@ -67,6 +69,8 @@ kms_key_id = "alias/project-key"
 	}
 
 	// 環境変数をクリーン
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_REGION", "")
 	t.Setenv("BUNDR_AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_KMS_KEY_ID", "")
@@ -100,6 +104,8 @@ profile = "project-profile"
 	}
 
 	// 環境変数で region をオーバーライド
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_REGION", "eu-west-1")
 	t.Setenv("BUNDR_AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_KMS_KEY_ID", "")
@@ -137,6 +143,8 @@ region = "ap-southeast-1"
 	}
 
 	// 環境変数をクリーン
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_REGION", "")
 	t.Setenv("BUNDR_AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_KMS_KEY_ID", "")
@@ -184,6 +192,8 @@ region = "ap-northeast-1"
 	}
 
 	// 環境変数をクリーン
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_REGION", "")
 	t.Setenv("BUNDR_AWS_PROFILE", "")
 	t.Setenv("BUNDR_AWS_KMS_KEY_ID", "")
@@ -285,4 +295,79 @@ func TestApplyCLIOverrides(t *testing.T) {
 			t.Errorf("expected kmsKeyID %q, got %q", "existing-key", cfg.AWS.KMSKeyID)
 		}
 	})
+}
+
+func TestAWSStandardEnvVars(t *testing.T) {
+	allRelatedEnvVars := []string{
+		"AWS_REGION", "AWS_PROFILE",
+		"BUNDR_AWS_REGION", "BUNDR_AWS_PROFILE", "BUNDR_AWS_KMS_KEY_ID",
+	}
+
+	tests := []struct {
+		name        string
+		setEnv      map[string]string
+		wantRegion  string
+		wantProfile string
+	}{
+		{
+			name:       "cfg-aws-01: AWS_REGION のみ",
+			setEnv:     map[string]string{"AWS_REGION": "us-west-2"},
+			wantRegion: "us-west-2",
+		},
+		{
+			name:        "cfg-aws-02: AWS_PROFILE のみ",
+			setEnv:      map[string]string{"AWS_PROFILE": "myprofile"},
+			wantProfile: "myprofile",
+		},
+		{
+			name: "cfg-aws-03: BUNDR_AWS_REGION が AWS_REGION より優先",
+			setEnv: map[string]string{
+				"AWS_REGION":       "us-east-1",
+				"BUNDR_AWS_REGION": "ap-northeast-1",
+			},
+			wantRegion: "ap-northeast-1",
+		},
+		{
+			name: "cfg-aws-04: BUNDR_AWS_PROFILE が AWS_PROFILE より優先",
+			setEnv: map[string]string{
+				"AWS_PROFILE":       "aws-profile",
+				"BUNDR_AWS_PROFILE": "bundr-profile",
+			},
+			wantProfile: "bundr-profile",
+		},
+		{
+			name:       "cfg-aws-05: BUNDR_AWS_REGION のみ（後方互換）",
+			setEnv:     map[string]string{"BUNDR_AWS_REGION": "eu-west-1"},
+			wantRegion: "eu-west-1",
+		},
+		{
+			name: "cfg-aws-07: AWS_REGION が空文字 → BUNDR_AWS_REGION を使用",
+			setEnv: map[string]string{
+				"AWS_REGION":       "",
+				"BUNDR_AWS_REGION": "ap-northeast-1",
+			},
+			wantRegion: "ap-northeast-1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range allRelatedEnvVars {
+				t.Setenv(k, "")
+			}
+			for k, v := range tc.setEnv {
+				t.Setenv(k, v)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() failed: %v", err)
+			}
+			if tc.wantRegion != "" && cfg.AWS.Region != tc.wantRegion {
+				t.Errorf("Region: want %q, got %q", tc.wantRegion, cfg.AWS.Region)
+			}
+			if tc.wantProfile != "" && cfg.AWS.Profile != tc.wantProfile {
+				t.Errorf("Profile: want %q, got %q", tc.wantProfile, cfg.AWS.Profile)
+			}
+		})
+	}
 }

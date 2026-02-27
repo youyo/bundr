@@ -15,6 +15,7 @@ import (
 type SSMClient interface {
 	PutParameter(ctx context.Context, input *ssm.PutParameterInput, optFns ...func(*ssm.Options)) (*ssm.PutParameterOutput, error)
 	GetParameter(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
+	GetParametersByPath(ctx context.Context, input *ssm.GetParametersByPathInput, optFns ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error)
 	AddTagsToResource(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error)
 	ListTagsForResource(ctx context.Context, input *ssm.ListTagsForResourceInput, optFns ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error)
 }
@@ -145,4 +146,67 @@ func (b *PSBackend) Get(ctx context.Context, ref string, opts GetOptions) (strin
 	}
 
 	return rawValue, nil
+}
+
+// GetByPrefix retrieves all parameters under the given SSM path prefix.
+func (b *PSBackend) GetByPrefix(ctx context.Context, prefix string, opts GetByPrefixOptions) ([]ParameterEntry, error) {
+	var entries []ParameterEntry
+	var nextToken *string
+
+	for {
+		input := &ssm.GetParametersByPathInput{
+			Path:           aws.String(prefix),
+			WithDecryption: aws.Bool(true),
+			Recursive:      aws.Bool(opts.Recursive),
+		}
+		if nextToken != nil {
+			input.NextToken = nextToken
+		}
+
+		out, err := b.client.GetParametersByPath(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("ssm GetParametersByPath: %w", err)
+		}
+
+		for _, param := range out.Parameters {
+			path := aws.ToString(param.Name)
+			value := aws.ToString(param.Value)
+
+			storeMode, err := b.getStoreMode(ctx, path)
+			if err != nil {
+				return nil, fmt.Errorf("get store mode for %s: %w", path, err)
+			}
+
+			entries = append(entries, ParameterEntry{
+				Path:      path,
+				Value:     value,
+				StoreMode: storeMode,
+			})
+		}
+
+		if out.NextToken == nil {
+			break
+		}
+		nextToken = out.NextToken
+	}
+
+	return entries, nil
+}
+
+// getStoreMode retrieves the cli-store-mode tag for the given SSM parameter path.
+func (b *PSBackend) getStoreMode(ctx context.Context, path string) (string, error) {
+	tagsOut, err := b.client.ListTagsForResource(ctx, &ssm.ListTagsForResourceInput{
+		ResourceId:   aws.String(path),
+		ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	for _, tag := range tagsOut.TagList {
+		if aws.ToString(tag.Key) == tags.TagStoreMode {
+			return aws.ToString(tag.Value), nil
+		}
+	}
+	return tags.StoreModeRaw, nil
 }

@@ -131,6 +131,11 @@ func mapToSMTags(m map[string]string) []smtypes.Tag {
 	return result
 }
 
+// GetByPrefix is not supported for Secrets Manager backend.
+func (b *SMBackend) GetByPrefix(_ context.Context, _ string, _ GetByPrefixOptions) ([]ParameterEntry, error) {
+	return nil, fmt.Errorf("GetByPrefix is not supported for Secrets Manager backend")
+}
+
 // getTagValue finds a tag value by key from a slice of SM tags.
 func getTagValue(tagSlice []smtypes.Tag, key string) string {
 	for _, t := range tagSlice {

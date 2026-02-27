@@ -2,6 +2,8 @@ package backend
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,10 +14,11 @@ import (
 
 // mockSSMClient is a test double for the SSM API.
 type mockSSMClient struct {
-	putParameterFn        func(ctx context.Context, input *ssm.PutParameterInput, optFns ...func(*ssm.Options)) (*ssm.PutParameterOutput, error)
-	getParameterFn        func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
-	addTagsToResourceFn   func(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error)
-	listTagsForResourceFn func(ctx context.Context, input *ssm.ListTagsForResourceInput, optFns ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error)
+	putParameterFn          func(ctx context.Context, input *ssm.PutParameterInput, optFns ...func(*ssm.Options)) (*ssm.PutParameterOutput, error)
+	getParameterFn          func(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
+	getParametersByPathFn   func(ctx context.Context, input *ssm.GetParametersByPathInput, optFns ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error)
+	addTagsToResourceFn     func(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error)
+	listTagsForResourceFn   func(ctx context.Context, input *ssm.ListTagsForResourceInput, optFns ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error)
 }
 
 func (m *mockSSMClient) PutParameter(ctx context.Context, input *ssm.PutParameterInput, optFns ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
@@ -24,6 +27,13 @@ func (m *mockSSMClient) PutParameter(ctx context.Context, input *ssm.PutParamete
 
 func (m *mockSSMClient) GetParameter(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
 	return m.getParameterFn(ctx, input, optFns...)
+}
+
+func (m *mockSSMClient) GetParametersByPath(ctx context.Context, input *ssm.GetParametersByPathInput, optFns ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+	if m.getParametersByPathFn == nil {
+		return &ssm.GetParametersByPathOutput{}, nil
+	}
+	return m.getParametersByPathFn(ctx, input, optFns...)
 }
 
 func (m *mockSSMClient) AddTagsToResource(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
@@ -357,5 +367,250 @@ func TestPSBackend_GetForceJSON(t *testing.T) {
 	// ForceJSON should decode even though tag says raw
 	if val != "hello" {
 		t.Errorf("Get(ForceJSON) = %q, want %q", val, "hello")
+	}
+}
+
+// --- GetByPrefix tests (PS-GB-01 ~ PS-GB-07) ---
+
+func rawTagList() []ssmtypes.Tag {
+	return []ssmtypes.Tag{
+		{Key: aws.String(tags.TagCLI), Value: aws.String(tags.TagCLIValue)},
+		{Key: aws.String(tags.TagStoreMode), Value: aws.String(tags.StoreModeRaw)},
+		{Key: aws.String(tags.TagSchema), Value: aws.String(tags.TagSchemaValue)},
+	}
+}
+
+// PS-GB-01: Basic retrieval of 3 parameters with StoreModeRaw
+func TestPSBackend_GetByPrefix_Basic(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, input *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			if aws.ToString(input.Path) != "/app/prod/" {
+				t.Errorf("Path = %q, want %q", aws.ToString(input.Path), "/app/prod/")
+			}
+			if !aws.ToBool(input.WithDecryption) {
+				t.Error("WithDecryption should be true")
+			}
+			if !aws.ToBool(input.Recursive) {
+				t.Error("Recursive should be true")
+			}
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{
+					{Name: aws.String("/app/prod/DB_HOST"), Value: aws.String("localhost")},
+					{Name: aws.String("/app/prod/DB_PORT"), Value: aws.String("5432")},
+					{Name: aws.String("/app/prod/DB_NAME"), Value: aws.String("mydb")},
+				},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return &ssm.ListTagsForResourceOutput{TagList: rawTagList()}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	entries, err := backend.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(entries))
+	}
+	for _, e := range entries {
+		if e.StoreMode != tags.StoreModeRaw {
+			t.Errorf("entry %s: StoreMode = %q, want %q", e.Path, e.StoreMode, tags.StoreModeRaw)
+		}
+	}
+}
+
+// PS-GB-02: Pagination (NextToken test)
+func TestPSBackend_GetByPrefix_Paginated(t *testing.T) {
+	ctx := context.Background()
+	callCount := 0
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, input *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			callCount++
+			if callCount == 1 {
+				return &ssm.GetParametersByPathOutput{
+					Parameters: []ssmtypes.Parameter{
+						{Name: aws.String("/app/prod/KEY1"), Value: aws.String("v1")},
+						{Name: aws.String("/app/prod/KEY2"), Value: aws.String("v2")},
+					},
+					NextToken: aws.String("tok"),
+				}, nil
+			}
+			if aws.ToString(input.NextToken) != "tok" {
+				t.Errorf("NextToken = %q, want %q", aws.ToString(input.NextToken), "tok")
+			}
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{
+					{Name: aws.String("/app/prod/KEY3"), Value: aws.String("v3")},
+					{Name: aws.String("/app/prod/KEY4"), Value: aws.String("v4")},
+					{Name: aws.String("/app/prod/KEY5"), Value: aws.String("v5")},
+				},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return &ssm.ListTagsForResourceOutput{TagList: rawTagList()}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	entries, err := backend.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 5 {
+		t.Fatalf("got %d entries, want 5", len(entries))
+	}
+	if callCount != 2 {
+		t.Errorf("GetParametersByPath called %d times, want 2", callCount)
+	}
+}
+
+// PS-GB-03: Empty result
+func TestPSBackend_GetByPrefix_EmptyResult(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, _ *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return &ssm.ListTagsForResourceOutput{TagList: rawTagList()}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	entries, err := backend.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("got %d entries, want 0", len(entries))
+	}
+}
+
+// PS-GB-04: StoreModeFromTags (json tag)
+func TestPSBackend_GetByPrefix_StoreModeFromTags(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, _ *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{
+					{Name: aws.String("/app/prod/CONFIG"), Value: aws.String(`{"key":"value"}`)},
+				},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return &ssm.ListTagsForResourceOutput{
+				TagList: []ssmtypes.Tag{
+					{Key: aws.String(tags.TagCLI), Value: aws.String(tags.TagCLIValue)},
+					{Key: aws.String(tags.TagStoreMode), Value: aws.String(tags.StoreModeJSON)},
+					{Key: aws.String(tags.TagSchema), Value: aws.String(tags.TagSchemaValue)},
+				},
+			}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	entries, err := backend.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].StoreMode != tags.StoreModeJSON {
+		t.Errorf("StoreMode = %q, want %q", entries[0].StoreMode, tags.StoreModeJSON)
+	}
+	if entries[0].Value != `{"key":"value"}` {
+		t.Errorf("Value = %q, want %q", entries[0].Value, `{"key":"value"}`)
+	}
+}
+
+// PS-GB-05: API error from GetParametersByPath
+func TestPSBackend_GetByPrefix_APIError(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, _ *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			return nil, fmt.Errorf("AccessDeniedException")
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return &ssm.ListTagsForResourceOutput{TagList: rawTagList()}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	_, err := backend.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "ssm GetParametersByPath") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "ssm GetParametersByPath")
+	}
+}
+
+// PS-GB-06: ListTagsForResource error
+func TestPSBackend_GetByPrefix_TagsAPIError(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, _ *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{
+					{Name: aws.String("/app/prod/KEY"), Value: aws.String("val")},
+				},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return nil, fmt.Errorf("InternalServerError")
+		},
+	}
+
+	backend := NewPSBackend(client)
+	_, err := backend.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "get store mode for") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "get store mode for")
+	}
+}
+
+// PS-GB-07: No tags -> default raw
+func TestPSBackend_GetByPrefix_DefaultStoreModeRaw(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, _ *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{
+					{Name: aws.String("/app/prod/KEY"), Value: aws.String("val")},
+				},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return &ssm.ListTagsForResourceOutput{
+				TagList: []ssmtypes.Tag{}, // No tags
+			}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	entries, err := backend.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].StoreMode != tags.StoreModeRaw {
+		t.Errorf("StoreMode = %q, want %q", entries[0].StoreMode, tags.StoreModeRaw)
 	}
 }

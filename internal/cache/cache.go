@@ -45,9 +45,24 @@ type FileStore struct {
 	baseDir string
 }
 
+// xdgCacheDir は XDG Base Directory Specification に従ってキャッシュディレクトリを返す。
+// $XDG_CACHE_HOME が絶対パスで設定されていればそれを使用し、
+// 未設定または相対パスの場合は $HOME/.cache を返す。
+// これにより macOS でも Linux と同様に ~/.cache/bundr/ が使われる。
+func xdgCacheDir() (string, error) {
+	if d := os.Getenv("XDG_CACHE_HOME"); d != "" && filepath.IsAbs(d) {
+		return d, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	return filepath.Join(home, ".cache"), nil
+}
+
 // NewFileStore はデフォルトキャッシュディレクトリを使用する FileStore を返す。
 func NewFileStore() (*FileStore, error) {
-	cacheDir, err := os.UserCacheDir()
+	cacheDir, err := xdgCacheDir()
 	if err != nil {
 		return nil, fmt.Errorf("get user cache dir: %w", err)
 	}

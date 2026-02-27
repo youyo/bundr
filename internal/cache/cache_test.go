@@ -337,6 +337,62 @@ func TestNewFileStore(t *testing.T) {
 	}
 }
 
+// cache-xdg-001: XDG_CACHE_HOME が絶対パスで設定されている場合はそのパスを使用
+func TestNewFileStore_XDGCacheHome(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", tmpDir)
+
+	s, err := NewFileStore()
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	expected := filepath.Join(tmpDir, "bundr")
+	if s.baseDir != expected {
+		t.Errorf("baseDir: expected %q, got %q", expected, s.baseDir)
+	}
+}
+
+// cache-xdg-002: XDG_CACHE_HOME 未設定の場合は ~/.cache/bundr を使用
+func TestNewFileStore_DefaultXDGPath(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "")
+
+	s, err := NewFileStore()
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	expected := filepath.Join(home, ".cache", "bundr")
+	if s.baseDir != expected {
+		t.Errorf("baseDir: expected %q, got %q", expected, s.baseDir)
+	}
+}
+
+// cache-xdg-003: XDG_CACHE_HOME が相対パスの場合は ~/.cache/bundr を使用（相対パスは無視）
+func TestNewFileStore_RelativeXDGCacheHome(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "relative/path")
+
+	s, err := NewFileStore()
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	expected := filepath.Join(home, ".cache", "bundr")
+	if s.baseDir != expected {
+		t.Errorf("baseDir: expected %q, got %q", expected, s.baseDir)
+	}
+}
+
 // ファイルが存在するが読み取り権限がない場合、ErrCacheNotFound とは区別されたエラーを返す
 func TestFileStore_Read_NoReadPermission(t *testing.T) {
 	if os.Getuid() == 0 {

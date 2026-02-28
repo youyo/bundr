@@ -19,6 +19,8 @@ import (
 	"github.com/youyo/bundr/internal/config"
 )
 
+var version = "dev" // goreleaser ldflags で上書き（-X main.version=...）
+
 // refPredictor は ref-style 補完を実装した complete.Predictor。
 // cmd.NewRefPredictor へのシンラッパー。
 type refPredictor struct {
@@ -73,9 +75,15 @@ func main() {
 		kongplete.WithPredictor("prefix", &prefixPredictor{store: cacheStore, bgLauncher: bgLauncher}),
 	)
 
-	// 6. 通常コマンドを解析（cli.Region 等が確定する）
-	// 引数なし実行時はヘルプを表示
+	// 6. --version フラグを早期チェック（Parse 前に処理）
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("bundr %s\n", version)
+		os.Exit(0)
+	}
 	args := os.Args[1:]
+
+	// 7. 通常コマンドを解析（cli.Region 等が確定する）
+	// 引数なし実行時はヘルプを表示
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
@@ -85,13 +93,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 7. CLI フラグで設定をオーバーライド（CLI flags > env vars > TOML）
+	// 8. CLI フラグで設定をオーバーライド（CLI flags > env vars > TOML）
 	config.ApplyCLIOverrides(cfg, cli.Region, cli.Profile, cli.KMSKeyID)
 
-	// 8. BackendFactory 構築（最終的な cfg で）
+	// 9. BackendFactory 構築（最終的な cfg で）
 	factory := newBackendFactory(cfg)
 
-	// 9. コマンドを実行
+	// 10. コマンドを実行
 	err = kctx.Run(&cmd.Context{
 		Config:         cfg,
 		BackendFactory: factory,

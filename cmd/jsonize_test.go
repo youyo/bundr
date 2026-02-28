@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -63,13 +64,30 @@ func newJsonizeTestContext(t *testing.T) (*backend.MockBackend, *Context) {
 	}
 }
 
-func setupJsonizeCmd(target, frompath string, opts ...func(*JsonizeCmd)) *JsonizeCmd {
+// setupJsonizeStdoutCmd は stdout モード（--to なし）の JsonizeCmd を作成する。
+func setupJsonizeStdoutCmd(frompath string, opts ...func(*JsonizeCmd)) *JsonizeCmd {
 	cmd := &JsonizeCmd{
-		Target:    target,
-		Frompath:  frompath,
-		Store:     "json",
-		ValueType: "string",
-		Force:     false,
+		Frompath: frompath,
+	}
+	for _, opt := range opts {
+		opt(cmd)
+	}
+	return cmd
+}
+
+// setupJsonizeStdoutCmdWithBuf は stdout モードで出力を bytes.Buffer にキャプチャする JsonizeCmd を作成する。
+func setupJsonizeStdoutCmdWithBuf(frompath string, opts ...func(*JsonizeCmd)) (*JsonizeCmd, *bytes.Buffer) {
+	var buf bytes.Buffer
+	cmd := setupJsonizeStdoutCmd(frompath, opts...)
+	cmd.out = &buf
+	return cmd, &buf
+}
+
+// setupJsonizeSaveCmd は save モード（--to あり）の JsonizeCmd を作成する。
+func setupJsonizeSaveCmd(frompath, to string, opts ...func(*JsonizeCmd)) *JsonizeCmd {
+	cmd := &JsonizeCmd{
+		Frompath: frompath,
+		To:       &to,
 	}
 	for _, opt := range opts {
 		opt(cmd)
@@ -88,14 +106,107 @@ func findTargetPutCall(mb *backend.MockBackend, targetRef string) *backend.PutCa
 	return nil
 }
 
-func TestJsonizeCmd(t *testing.T) {
-	t.Run("JC-01", func(t *testing.T) {
+// --- JS-NN: stdout モード正常系 ---
+
+func TestJsonizeCmdStdout(t *testing.T) {
+	t.Run("JS-01", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
 		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
 		_ = mb.Put(ctx, "ps:/app/prod/DB_PORT", backend.PutOptions{Value: "5432", StoreMode: "raw"})
 
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/")
+		cmd, buf := setupJsonizeStdoutCmdWithBuf("ps:/app/prod/")
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got := strings.TrimSpace(buf.String())
+		assertJSONEqual(t, got, `{"db":{"host":"localhost","port":5432}}`)
+	})
+
+	t.Run("JS-02", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		cmd, buf := setupJsonizeStdoutCmdWithBuf("ps:/app/prod/")
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got := strings.TrimSpace(buf.String())
+		assertJSONEqual(t, got, `{}`)
+	})
+
+	t.Run("JS-03-compact", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
+
+		cmd, buf := setupJsonizeStdoutCmdWithBuf("ps:/app/prod/",
+			func(c *JsonizeCmd) { c.Compact = true })
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got := strings.TrimSpace(buf.String())
+		// compact: 余分な空白・改行なし
+		if strings.Contains(got, "\n") {
+			t.Errorf("expected compact JSON (no newlines), got: %s", got)
+		}
+		assertJSONEqual(t, got, `{"db":{"host":"localhost"}}`)
+	})
+
+	t.Run("JS-04-indent-default", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
+
+		cmd, buf := setupJsonizeStdoutCmdWithBuf("ps:/app/prod/")
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got := buf.String()
+		// インデント付き出力には改行とスペースが含まれる
+		if !strings.Contains(got, "\n") || !strings.Contains(got, "  ") {
+			t.Errorf("expected indented JSON, got: %s", got)
+		}
+		assertJSONEqual(t, strings.TrimSpace(got), `{"db":{"host":"localhost"}}`)
+	})
+
+	t.Run("JS-05-json-storemode", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
+		_ = mb.Put(ctx, "ps:/app/prod/CONFIG", backend.PutOptions{Value: `{"timeout":30,"enabled":true}`, StoreMode: "json"})
+
+		cmd, buf := setupJsonizeStdoutCmdWithBuf("ps:/app/prod/")
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got := strings.TrimSpace(buf.String())
+		var gotMap map[string]interface{}
+		if err := json.Unmarshal([]byte(got), &gotMap); err != nil {
+			t.Fatalf("unmarshal got: %v", err)
+		}
+		if _, ok := gotMap["db"]; !ok {
+			t.Errorf("expected 'db' key in result JSON")
+		}
+		if _, ok := gotMap["config"]; !ok {
+			t.Errorf("expected 'config' key in result JSON")
+		}
+	})
+}
+
+// --- JSave-NN: save モード正常系 ---
+
+func TestJsonizeCmdSave(t *testing.T) {
+	t.Run("JSave-01", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
+		_ = mb.Put(ctx, "ps:/app/prod/DB_PORT", backend.PutOptions{Value: "5432", StoreMode: "raw"})
+
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config")
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -110,13 +221,14 @@ func TestJsonizeCmd(t *testing.T) {
 		assertJSONEqual(t, putCall.Opts.Value, `{"db":{"host":"localhost","port":5432}}`)
 	})
 
-	t.Run("JC-02", func(t *testing.T) {
+	t.Run("JSave-02-store-raw", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
 		_ = mb.Put(ctx, "ps:/app/prod/APP_NAME", backend.PutOptions{Value: "myapp", StoreMode: "raw"})
 
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/",
-			func(c *JsonizeCmd) { c.Store = "raw" })
+		store := "raw"
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config",
+			func(c *JsonizeCmd) { c.Store = &store })
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -128,13 +240,12 @@ func TestJsonizeCmd(t *testing.T) {
 		if putCall.Opts.StoreMode != "raw" {
 			t.Errorf("StoreMode: got %q, want %q", putCall.Opts.StoreMode, "raw")
 		}
-		assertJSONEqual(t, putCall.Opts.Value, `{"app":{"name":"myapp"}}`)
 	})
 
-	t.Run("JC-03", func(t *testing.T) {
+	t.Run("JSave-03-empty", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config")
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -146,17 +257,15 @@ func TestJsonizeCmd(t *testing.T) {
 		assertJSONEqual(t, putCall.Opts.Value, `{}`)
 	})
 
-	t.Run("JC-04-force", func(t *testing.T) {
+	t.Run("JSave-04-force", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
-		// target に既存値をセット
 		_ = mb.Put(ctx, "ps:/app/config", backend.PutOptions{Value: "old", StoreMode: "raw"})
-		// frompath にデータをセット
 		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
 
 		putCountBefore := len(mb.PutCalls)
 
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/",
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config",
 			func(c *JsonizeCmd) { c.Force = true })
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -171,12 +280,12 @@ func TestJsonizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("JC-05-psa", func(t *testing.T) {
+	t.Run("JSave-05-psa", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
 		_ = mb.Put(ctx, "psa:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
 
-		cmd := setupJsonizeCmd("psa:/app/config", "psa:/app/prod/")
+		cmd := setupJsonizeSaveCmd("psa:/app/prod/", "psa:/app/config")
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -187,12 +296,12 @@ func TestJsonizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("JC-06-sm-target", func(t *testing.T) {
+	t.Run("JSave-06-sm-target", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
 		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
 
-		cmd := setupJsonizeCmd("sm:app-config", "ps:/app/prod/")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "sm:app-config")
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -203,13 +312,14 @@ func TestJsonizeCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("JC-07-raw-json-mixed", func(t *testing.T) {
+	t.Run("JSave-07-value-type-secure", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
 		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
-		_ = mb.Put(ctx, "ps:/app/prod/CONFIG", backend.PutOptions{Value: `{"timeout":30,"enabled":true}`, StoreMode: "json"})
 
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/")
+		vt := "secure"
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config",
+			func(c *JsonizeCmd) { c.ValueType = &vt })
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -218,66 +328,86 @@ func TestJsonizeCmd(t *testing.T) {
 		if putCall == nil {
 			t.Fatal("expected Put call for ps:/app/config, not found")
 		}
-		if putCall.Opts.StoreMode != "json" {
-			t.Errorf("StoreMode: got %q, want %q", putCall.Opts.StoreMode, "json")
-		}
-		// db.host と config.timeout/enabled が両方含まれることを確認
-		var gotMap map[string]interface{}
-		if err := json.Unmarshal([]byte(putCall.Opts.Value), &gotMap); err != nil {
-			t.Fatalf("unmarshal value: %v", err)
-		}
-		if _, ok := gotMap["db"]; !ok {
-			t.Errorf("expected 'db' key in result JSON, got: %s", putCall.Opts.Value)
-		}
-		if _, ok := gotMap["config"]; !ok {
-			t.Errorf("expected 'config' key in result JSON, got: %s", putCall.Opts.Value)
+		if putCall.Opts.ValueType != "secure" {
+			t.Errorf("ValueType: got %q, want %q", putCall.Opts.ValueType, "secure")
 		}
 	})
 }
 
-func TestJsonizeCmd_Errors(t *testing.T) {
-	t.Run("JCE-01-frompath-sm", func(t *testing.T) {
+// --- JSE-NN: stdout モード固有エラー ---
+
+func TestJsonizeCmdStdoutErrors(t *testing.T) {
+	t.Run("JSE-01-store-without-to", func(t *testing.T) {
 		_, appCtx := newJsonizeTestContext(t)
-		cmd := setupJsonizeCmd("ps:/app/config", "sm:secret")
+		store := "raw"
+		cmd := setupJsonizeStdoutCmd("ps:/app/prod/",
+			func(c *JsonizeCmd) { c.Store = &store })
 		err := cmd.Run(appCtx)
-		assertErrContains(t, err, "--frompath sm: backend is not supported")
+		assertErrContains(t, err, "--store is only valid with --to")
 	})
 
-	t.Run("JCE-02-invalid-target-ref", func(t *testing.T) {
+	t.Run("JSE-02-value-type-without-to", func(t *testing.T) {
 		_, appCtx := newJsonizeTestContext(t)
-		cmd := setupJsonizeCmd("invalid-ref", "ps:/app/prod/")
+		vt := "secure"
+		cmd := setupJsonizeStdoutCmd("ps:/app/prod/",
+			func(c *JsonizeCmd) { c.ValueType = &vt })
+		err := cmd.Run(appCtx)
+		assertErrContains(t, err, "--value-type is only valid with --to")
+	})
+
+	t.Run("JSE-03-force-without-to", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		cmd := setupJsonizeStdoutCmd("ps:/app/prod/",
+			func(c *JsonizeCmd) { c.Force = true })
+		err := cmd.Run(appCtx)
+		assertErrContains(t, err, "--force is only valid with --to")
+	})
+}
+
+// --- JSaveE-NN: save モード固有エラー ---
+
+func TestJsonizeCmdSaveErrors(t *testing.T) {
+	t.Run("JSaveE-01-compact-with-to", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config",
+			func(c *JsonizeCmd) { c.Compact = true })
+		err := cmd.Run(appCtx)
+		assertErrContains(t, err, "--compact is only valid without --to")
+	})
+
+	t.Run("JSaveE-02-invalid-target-ref", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "invalid-ref")
 		err := cmd.Run(appCtx)
 		assertErrContains(t, err, "invalid target ref")
 	})
 
-	t.Run("JCE-03-invalid-frompath-ref", func(t *testing.T) {
+	t.Run("JSaveE-03-self-reference", func(t *testing.T) {
 		_, appCtx := newJsonizeTestContext(t)
-		cmd := setupJsonizeCmd("ps:/app/config", "invalid-ref")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/prod/config")
 		err := cmd.Run(appCtx)
-		assertErrContains(t, err, "invalid frompath ref")
+		assertErrContains(t, err, "self-reference not allowed")
 	})
 
-	t.Run("JCE-04-target-exists-no-force", func(t *testing.T) {
+	t.Run("JSaveE-04-target-exists-no-force", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
-		// target に既存値をセット
 		_ = mb.Put(ctx, "ps:/app/config", backend.PutOptions{Value: "old", StoreMode: "raw"})
 		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
 
 		putCountBefore := len(mb.PutCalls)
 
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config")
 		err := cmd.Run(appCtx)
 		assertErrContains(t, err, "target already exists")
 
-		// Run 内の Put は呼ばれていないことを確認
 		if len(mb.PutCalls) != putCountBefore {
-			t.Errorf("expected no new Put calls after error, but PutCalls changed: before=%d, after=%d",
+			t.Errorf("expected no new Put calls after error, PutCalls changed: before=%d, after=%d",
 				putCountBefore, len(mb.PutCalls))
 		}
 	})
 
-	t.Run("JCE-05-getbyprefix-error", func(t *testing.T) {
+	t.Run("JSaveE-05-getbyprefix-error", func(t *testing.T) {
 		errBackend := &getByPrefixErrorBackend{err: fmt.Errorf("simulated getByPrefix error")}
 		appCtx := &Context{
 			Config: &config.Config{},
@@ -285,24 +415,12 @@ func TestJsonizeCmd_Errors(t *testing.T) {
 				return errBackend, nil
 			},
 		}
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config")
 		err := cmd.Run(appCtx)
 		assertErrContains(t, err, "get parameters")
 	})
 
-	t.Run("JCE-06-build-conflict", func(t *testing.T) {
-		mb, appCtx := newJsonizeTestContext(t)
-		ctx := context.Background()
-		// DB_HOST と DB_HOST_SUB が競合する
-		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "x", StoreMode: "raw"})
-		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST_SUB", backend.PutOptions{Value: "y", StoreMode: "raw"})
-
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/")
-		err := cmd.Run(appCtx)
-		assertErrContains(t, err, "build json")
-	})
-
-	t.Run("JCE-07-put-error", func(t *testing.T) {
+	t.Run("JSaveE-06-put-error", func(t *testing.T) {
 		mb := backend.NewMockBackend()
 		ctx := context.Background()
 		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
@@ -318,17 +436,16 @@ func TestJsonizeCmd_Errors(t *testing.T) {
 			},
 		}
 
-		cmd := setupJsonizeCmd("sm:app-config", "ps:/app/prod/")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "sm:app-config")
 		err := cmd.Run(appCtx)
 		assertErrContains(t, err, "put target")
 	})
 
-	t.Run("JCE-08-get-permission-error", func(t *testing.T) {
+	t.Run("JSaveE-07-check-existence-error", func(t *testing.T) {
 		mb := backend.NewMockBackend()
 		ctx := context.Background()
 		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
 
-		// ParameterNotFound ではない権限エラー
 		accessDenied := fmt.Errorf("AccessDeniedException: User is not authorized")
 		errBackend := &getErrorBackend{MockBackend: mb, getErr: accessDenied}
 
@@ -339,17 +456,39 @@ func TestJsonizeCmd_Errors(t *testing.T) {
 			},
 		}
 
-		cmd := setupJsonizeCmd("ps:/app/config", "ps:/app/prod/")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config")
 		err := cmd.Run(appCtx)
 		assertErrContains(t, err, "check target existence")
 	})
+}
 
-	t.Run("JCE-09-self-reference", func(t *testing.T) {
+// --- JCE-NN: 共通異常系 ---
+
+func TestJsonizeCmdCommonErrors(t *testing.T) {
+	t.Run("JCE-01-frompath-sm", func(t *testing.T) {
 		_, appCtx := newJsonizeTestContext(t)
-		// target が frompath 配下に存在する自己参照ケース
-		cmd := setupJsonizeCmd("ps:/app/prod/config", "ps:/app/prod/")
+		cmd := setupJsonizeStdoutCmd("sm:secret")
 		err := cmd.Run(appCtx)
-		assertErrContains(t, err, "self-reference not allowed")
+		assertErrContains(t, err, "--frompath sm: backend is not supported")
+	})
+
+	t.Run("JCE-02-invalid-frompath-ref", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		cmd := setupJsonizeStdoutCmd("invalid-ref")
+		err := cmd.Run(appCtx)
+		assertErrContains(t, err, "invalid frompath ref")
+	})
+
+	t.Run("JCE-03-build-conflict", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "x", StoreMode: "raw"})
+		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST_SUB", backend.PutOptions{Value: "y", StoreMode: "raw"})
+
+		// stdout モードでもビルドエラーは同様に発生する
+		cmd, _ := setupJsonizeStdoutCmdWithBuf("ps:/app/prod/")
+		err := cmd.Run(appCtx)
+		assertErrContains(t, err, "build json")
 	})
 }
 

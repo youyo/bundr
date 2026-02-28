@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
@@ -14,92 +17,152 @@ import (
 
 // JsonizeCmd represents the "jsonize" subcommand.
 type JsonizeCmd struct {
-	Target    string `arg:"" predictor:"ref" help:"Target ref to store the JSON (e.g. ps:/app/config, sm:app-config)"`
-	Frompath  string `required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
-	Store     string `default:"json" enum:"raw,json" help:"Storage mode for target (raw|json)"`
-	ValueType string `default:"string" enum:"string,secure" help:"Value type (string|secure)"`
-	Force     bool   `help:"Overwrite target if it already exists"`
+	Frompath  string  `required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
+	To        *string `optional:"" predictor:"ref" name:"to" help:"Target ref to save JSON (omit to print to stdout)"`
+	Store     *string `optional:"" enum:"raw,json" name:"store" help:"Storage mode for target (raw|json) [default: json]"`
+	ValueType *string `optional:"" enum:"string,secure" name:"value-type" help:"Value type (string|secure) [default: string]"`
+	Force     bool    `help:"Overwrite target if it already exists (save mode only)"`
+	Compact   bool    `help:"Print compact JSON without indentation (stdout mode only)"`
+
+	out io.Writer // for testing; nil means os.Stdout
 }
 
 // Run executes the jsonize command.
 func (c *JsonizeCmd) Run(appCtx *Context) error {
-	// 1. frompath の ref をパース
+	out := c.out
+	if out == nil {
+		out = os.Stdout
+	}
+
+	// 1. frompath パース + sm: チェック
 	fromRef, err := backend.ParseRef(c.Frompath)
 	if err != nil {
 		return fmt.Errorf("jsonize command failed: invalid frompath ref: %w", err)
 	}
-
-	// 2. frompath に sm: は不可
 	if fromRef.Type == backend.BackendTypeSM {
 		return fmt.Errorf("jsonize command failed: --frompath sm: backend is not supported (use ps: or psa:)")
 	}
 
-	// 3. target の ref をパース
-	targetRef, err := backend.ParseRef(c.Target)
-	if err != nil {
-		return fmt.Errorf("jsonize command failed: invalid target ref: %w", err)
+	// 2. モード判定
+	isStdoutMode := c.To == nil
+
+	// 3. フラグ組み合わせバリデーション
+	if err := c.validateFlags(isStdoutMode); err != nil {
+		return err
 	}
 
-	// 自己参照チェック: target が frompath 配下にある場合はエラー
-	fromBase := strings.TrimRight(fromRef.Path, "/") + "/"
-	if strings.HasPrefix(targetRef.Path+"/", fromBase) || targetRef.Path == strings.TrimRight(fromRef.Path, "/") {
-		return fmt.Errorf("jsonize command failed: target %q is within --frompath %q (self-reference not allowed)", c.Target, c.Frompath)
+	// 4. [save モードのみ] target ref パース + 自己参照チェック
+	var targetRef *backend.Ref
+	if !isStdoutMode {
+		ref, err := backend.ParseRef(*c.To)
+		if err != nil {
+			return fmt.Errorf("jsonize command failed: invalid target ref: %w", err)
+		}
+		targetRef = &ref
+
+		fromBase := strings.TrimRight(fromRef.Path, "/") + "/"
+		if strings.HasPrefix(targetRef.Path+"/", fromBase) || targetRef.Path == strings.TrimRight(fromRef.Path, "/") {
+			return fmt.Errorf("jsonize command failed: target %q is within --frompath %q (self-reference not allowed)", *c.To, c.Frompath)
+		}
 	}
 
-	// 4. frompath のバックエンドを作成
+	// 5. frompath バックエンド作成
 	fromBackend, err := appCtx.BackendFactory(fromRef.Type)
 	if err != nil {
 		return fmt.Errorf("jsonize command failed: create from backend: %w", err)
 	}
 
-	// 5. frompath からパラメータ一括取得
+	// 6. frompath からパラメータ一括取得
 	entries, err := fromBackend.GetByPrefix(context.Background(), fromRef.Path, backend.GetByPrefixOptions{Recursive: true})
 	if err != nil {
 		return fmt.Errorf("jsonize command failed: get parameters: %w", err)
 	}
 
-	// 6. --force=false の場合: target の存在チェック
-	if !c.Force {
+	// 7. [save モードのみ, --force=false] target 存在チェック
+	if !isStdoutMode && !c.Force {
 		targetBackend, err := appCtx.BackendFactory(targetRef.Type)
 		if err != nil {
 			return fmt.Errorf("jsonize command failed: create target backend: %w", err)
 		}
-		_, err = targetBackend.Get(context.Background(), c.Target, backend.GetOptions{ForceRaw: true})
+		_, err = targetBackend.Get(context.Background(), *c.To, backend.GetOptions{ForceRaw: true})
 		if err == nil {
-			// err == nil → target が存在する → 上書き禁止
-			return fmt.Errorf("jsonize command failed: target already exists: %s (use --force to overwrite)", c.Target)
+			return fmt.Errorf("jsonize command failed: target already exists: %s (use --force to overwrite)", *c.To)
 		}
 		if !isNotFound(err) {
-			// ParameterNotFound 以外のエラーは即時失敗（フェイルセーフ）
 			return fmt.Errorf("jsonize command failed: check target existence: %w", err)
 		}
-		// isNotFound == true → target が存在しない → 続行
 	}
 
-	// 7. ParameterEntry → jsonize.Entry 変換
+	// 8. ParameterEntry → jsonize.Entry 変換
 	jsonizeEntries := parameterEntriesToJsonizeEntries(entries, fromRef.Path)
 
-	// 8. JSON ビルド
+	// Build は常にコンパクト JSON を返す。stdout モードではインデントを追加する。
 	jsonBytes, err := jsonize.Build(jsonizeEntries, true)
 	if err != nil {
 		return fmt.Errorf("jsonize command failed: build json: %w", err)
 	}
 
-	// 9. target バックエンドを作成して Put
+	// 9. stdout モード: インデント付き（または --compact）で out へ出力
+	if isStdoutMode {
+		var output []byte
+		if c.Compact {
+			output = jsonBytes
+		} else {
+			var v interface{}
+			if err := json.Unmarshal(jsonBytes, &v); err != nil {
+				return fmt.Errorf("jsonize command failed: unmarshal for indent: %w", err)
+			}
+			output, err = json.MarshalIndent(v, "", "  ")
+			if err != nil {
+				return fmt.Errorf("jsonize command failed: indent json: %w", err)
+			}
+		}
+		fmt.Fprintln(out, string(output))
+		return nil
+	}
+
+	// 10. save モード: target バックエンドへ Put
+	store := "json"
+	if c.Store != nil {
+		store = *c.Store
+	}
+	valueType := "string"
+	if c.ValueType != nil {
+		valueType = *c.ValueType
+	}
+
 	targetBackend, err := appCtx.BackendFactory(targetRef.Type)
 	if err != nil {
 		return fmt.Errorf("jsonize command failed: create target backend: %w", err)
 	}
-
-	if err := targetBackend.Put(context.Background(), c.Target, backend.PutOptions{
+	if err := targetBackend.Put(context.Background(), *c.To, backend.PutOptions{
 		Value:     string(jsonBytes),
-		StoreMode: c.Store,
-		ValueType: c.ValueType,
+		StoreMode: store,
+		ValueType: valueType,
 	}); err != nil {
 		return fmt.Errorf("jsonize command failed: put target: %w", err)
 	}
 
-	fmt.Println("OK")
+	return nil
+}
+
+// validateFlags はモードに応じたフラグ組み合わせを検証する。
+func (c *JsonizeCmd) validateFlags(isStdoutMode bool) error {
+	if isStdoutMode {
+		if c.Store != nil {
+			return fmt.Errorf("jsonize command failed: --store is only valid with --to")
+		}
+		if c.ValueType != nil {
+			return fmt.Errorf("jsonize command failed: --value-type is only valid with --to")
+		}
+		if c.Force {
+			return fmt.Errorf("jsonize command failed: --force is only valid with --to")
+		}
+	} else {
+		if c.Compact {
+			return fmt.Errorf("jsonize command failed: --compact is only valid without --to")
+		}
+	}
 	return nil
 }
 

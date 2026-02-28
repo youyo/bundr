@@ -1,21 +1,37 @@
 # bundr
 
-AWS Parameter Store と Secrets Manager を統合する単一バイナリ Go CLI。
+A CLI for AWS Parameter Store and Secrets Manager.
 
 [![Release](https://img.shields.io/github/v/release/youyo/bundr)](https://github.com/youyo/bundr/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/youyo/bundr)](https://goreportcard.com/report/github.com/youyo/bundr)
 
-## インストール
+[日本語](README.ja.md)
 
-### Homebrew（推奨）
+## What it does
+
+- Reads and writes to SSM Parameter Store (Standard and Advanced) and Secrets Manager through a single interface.
+- Tags every managed parameter with `cli=bundr` for auditing and filtering.
+- Exports parameters as environment variables (`shell`, `dotenv`, `direnv`).
+- Injects parameters into a subprocess environment without touching the shell.
+- Caches parameter paths locally to speed up tab completion.
+
+## Install
+
+### Homebrew (recommended)
 
 ```bash
 brew install youyo/tap/bundr
 ```
 
-### GitHub Releases
+### go install
 
-[リリースページ](https://github.com/youyo/bundr/releases) からバイナリをダウンロード。
+```bash
+go install github.com/youyo/bundr@latest
+```
+
+### Manual binary
+
+Download from the [Releases page](https://github.com/youyo/bundr/releases):
 
 ```bash
 # macOS (Apple Silicon)
@@ -35,195 +51,311 @@ curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Linux_arm6
 sudo mv bundr /usr/local/bin/
 ```
 
-### go install
+## Quick start
 
 ```bash
-go install github.com/youyo/bundr@latest
-```
-
-## クイックスタート
-
-```bash
-# 1. 値を保存
+# 1. Store a value
 bundr put ps:/myapp/db_host --value localhost --store raw
 
-# 2. 値を取得
+# 2. Get a value
 bundr get ps:/myapp/db_host
 
-# 3. プレフィックス配下の一覧を表示
+# 3. List parameters under a prefix
 bundr ls ps:/myapp/
 
-# 4. 環境変数としてエクスポート
+# 4. Export as environment variables
 eval "$(bundr export ps:/myapp/ --format shell)"
 
-# 5. 環境変数を注入してコマンドを実行
-bundr exec ps:/myapp/ -- node app.js
+# 5. Run a command with parameters injected
+bundr exec --from ps:/myapp/ -- node app.js
 ```
 
-## Ref 構文
+## Ref syntax
 
-| Ref | バックエンド | 説明 |
-|-----|------------|------|
-| `ps:/path/to/key` | SSM Parameter Store (Standard) | 標準パラメータ（最大4KB）|
-| `psa:/path/to/key` | SSM Parameter Store (Advanced) | 拡張パラメータ（最大8KB）|
-| `sm:secret-id` | Secrets Manager | シークレット（バージョン管理あり）|
+| Ref | Backend | Notes |
+|-----|---------|-------|
+| `ps:/path/to/key` | SSM Parameter Store (Standard) | Up to 4 KB |
+| `psa:/path/to/key` | SSM Parameter Store (Advanced) | Up to 8 KB |
+| `sm:secret-id` | Secrets Manager | Versioned secrets |
 
-## コマンドリファレンス
+## Recipes
 
-### bundr put
+### put
 
-値を保存する。
-
-```bash
-bundr put <ref> --value <string> --store raw|json [--region <region>] [--profile <profile>]
-```
-
-| オプション | 説明 |
-|----------|------|
-| `--value` | 保存する値 |
-| `--store` | ストレージモード（`raw` または `json`）|
-| `--region` | AWS リージョン |
-| `--profile` | AWS プロファイル |
+Store a string in raw mode:
 
 ```bash
-# 文字列を raw モードで保存
 bundr put ps:/app/db_host --value localhost --store raw
-
-# JSON スカラーとして保存
-bundr put ps:/app/db_port --value 5432 --store json
 ```
 
-### bundr get
-
-値を取得する。
+Store a value that should be treated as a JSON scalar:
 
 ```bash
-bundr get <ref> [--raw|--json] [--region <region>] [--profile <profile>]
+bundr put ps:/app/db_port --value 5432 --store json
+bundr put ps:/app/debug --value true --store json
 ```
+
+Store to Secrets Manager:
+
+```bash
+bundr put sm:myapp/api-key --value s3cr3t --store raw
+```
+
+Encrypt with a specific KMS key:
+
+```bash
+bundr put psa:/app/token --value s3cr3t --store raw --kms-key-id alias/my-key
+```
+
+### get
+
+Print a value:
 
 ```bash
 bundr get ps:/app/db_host
+```
+
+Capture in a shell variable:
+
+```bash
+DB_HOST=$(bundr get ps:/app/db_host)
+```
+
+Print the raw stored value, ignoring the store-mode tag:
+
+```bash
 bundr get ps:/app/db_port --raw
 ```
 
-### bundr export
+### ls
 
-プレフィックス配下のパラメータを環境変数形式で出力する。
-
-```bash
-bundr export <prefix> --format shell|dotenv|direnv [--no-recursive]
-```
-
-| フォーマット | 出力形式 |
-|------------|---------|
-| `shell` | `export KEY=value` |
-| `dotenv` | `KEY=value` |
-| `direnv` | `export KEY=value` |
-
-```bash
-# シェルに export
-eval "$(bundr export ps:/app/ --format shell)"
-
-# .env ファイルに書き出し
-bundr export ps:/app/ --format dotenv > .env
-
-# direnv に対応
-bundr export ps:/app/ --format direnv > .envrc
-```
-
-### bundr ls
-
-プレフィックス配下のパラメータ一覧を表示する。
-
-```bash
-bundr ls <prefix> [--no-recursive]
-```
+List all parameter paths under a prefix:
 
 ```bash
 bundr ls ps:/app/
-bundr ls ps:/app/ --no-recursive  # サブディレクトリを展開しない
 ```
 
-### bundr exec
-
-環境変数を注入してコマンドを実行する。複数のプレフィックスを指定でき、後のプレフィックスが優先される。
-
-> **Note**: v0.1.x では `bundr run` でしたが、v0.2.0 から `bundr exec` にリネームされました。
+List only the immediate children (no recursion):
 
 ```bash
-bundr exec <prefix>... -- <command> [args...]
+bundr ls ps:/app/ --no-recursive
 ```
+
+Count parameters:
 
 ```bash
-# 単一プレフィックスから環境変数を注入
-bundr exec ps:/app/ -- node server.js
-
-# 複数プレフィックス（後者が優先）
-bundr exec ps:/common/ ps:/app/prod/ -- python main.py
+bundr ls ps:/app/ | wc -l
 ```
 
-### bundr jsonize
+### export
 
-プレフィックス配下のパラメータを JSON として1つのキーにまとめて保存する。
+Load parameters into the current shell:
 
 ```bash
-bundr jsonize <target-ref> --frompath <prefix> [--force]
+eval "$(bundr export ps:/app/ --format shell)"
 ```
+
+Write a `.env` file:
+
+```bash
+bundr export ps:/app/ --format dotenv > .env
+```
+
+Write a direnv `.envrc`:
+
+```bash
+bundr export ps:/app/ --format direnv > .envrc
+```
+
+Use in a CI/CD pipeline (GitHub Actions):
+
+```yaml
+- name: Load parameters
+  run: eval "$(bundr export ps:/myapp/prod/ --format shell)"
+```
+
+### exec
+
+Runs a command with parameters injected as environment variables. The subprocess inherits the current environment plus the fetched parameters. Later `--from` entries take precedence over earlier ones.
+
+Single prefix:
+
+```bash
+bundr exec --from ps:/app/ -- node server.js
+```
+
+Multiple prefixes — later entries override earlier ones:
+
+```bash
+bundr exec --from ps:/common/ --from ps:/app/prod/ -- python main.py
+```
+
+Inspect what gets injected:
+
+```bash
+bundr exec --from ps:/app/ -- env | grep DB
+```
+
+### jsonize
+
+Reads all parameters under a prefix and stores them as a single JSON object in Secrets Manager:
 
 ```bash
 bundr jsonize sm:myapp-config --frompath ps:/app/
 ```
 
-### bundr completion
-
-シェル補完スクリプトを出力する。
+Use `--force` to overwrite an existing secret:
 
 ```bash
-bundr completion bash|zsh|fish
+bundr jsonize sm:myapp-config --frompath ps:/app/ --force
 ```
 
+### completion
+
+Print and immediately activate completion for the current shell session:
+
 ```bash
-# Zsh に補完を追加
 eval "$(bundr completion zsh)"
-
-# Bash に補完を追加
 eval "$(bundr completion bash)"
-
-# Fish に補完を追加
 bundr completion fish | source
 ```
 
-### bundr cache
+To persist across sessions, add to your shell startup file:
 
-パラメータ一覧キャッシュを管理する（補完高速化のため自動管理）。
+```bash
+# ~/.zshrc
+eval "$(bundr completion zsh)"
+
+# ~/.bashrc
+eval "$(bundr completion bash)"
+
+# ~/.config/fish/config.fish
+bundr completion fish | source
+```
+
+### cache
+
+bundr caches parameter paths locally to make tab completion fast. The cache refreshes in the background automatically during completion.
+
+Refresh the cache manually after adding new parameters:
 
 ```bash
 bundr cache refresh
 ```
 
-## グローバルフラグ
+## Command reference
 
-| フラグ | 環境変数 | 後方互換変数 | 説明 |
-|------|---------|-----------|------|
-| `--region` | `AWS_REGION` | `BUNDR_AWS_REGION` | AWS リージョン |
-| `--profile` | `AWS_PROFILE` | `BUNDR_AWS_PROFILE` | AWS プロファイル名 |
-| `--kms-key-id` | `BUNDR_KMS_KEY_ID` | `BUNDR_AWS_KMS_KEY_ID` | KMS キー ID または ARN |
+### Global flags
 
-## 設定
+| Flag | Env var | Description |
+|------|---------|-------------|
+| `--region` | `AWS_REGION`, `BUNDR_AWS_REGION` | AWS region |
+| `--profile` | `AWS_PROFILE`, `BUNDR_AWS_PROFILE` | AWS profile name |
+| `--kms-key-id` | `BUNDR_KMS_KEY_ID`, `BUNDR_AWS_KMS_KEY_ID` | KMS key ID or ARN |
 
-### 設定優先順位
+### bundr put
 
-1. CLI フラグ（`--region`, `--profile`, `--kms-key-id`）
-2. 標準 AWS 環境変数（`AWS_REGION`, `AWS_PROFILE`）
-3. bundr 固有環境変数（`BUNDR_AWS_REGION`, `BUNDR_AWS_PROFILE`）
-4. プロジェクト設定ファイル（`.bundr.toml`）
-5. グローバル設定ファイル（`~/.config/bundr/config.toml`）
+```
+bundr put <ref> --value <string> --store raw|json [flags]
+```
 
-> **Note**: `BUNDR_AWS_*` は `AWS_*` より優先されます。明示的に bundr 用に設定した値が標準の AWS 環境変数に上書きされることはありません。
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--value` | Yes | Value to store |
+| `--store` | Yes | `raw` stores as-is; `json` encodes scalars as JSON |
+| `--kms-key-id` | No | KMS key ID or ARN for encryption |
 
-### プロジェクト設定ファイル（.bundr.toml）
+### bundr get
 
-プロジェクトのルートディレクトリに `.bundr.toml` を配置することで、プロジェクト固有の設定が可能です。
+```
+bundr get <ref> [--raw|--json] [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--raw` | Print the stored value without JSON decoding |
+| `--json` | Print the JSON-encoded value |
+
+### bundr export
+
+```
+bundr export <prefix> --format shell|dotenv|direnv [flags]
+```
+
+| Format | Output |
+|--------|--------|
+| `shell` | `export KEY=value` |
+| `dotenv` | `KEY=value` |
+| `direnv` | `export KEY=value` |
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format` | | Output format (required) |
+| `--no-recursive` | false | List only immediate children |
+| `--upper` | true | Uppercase variable names |
+| `--flatten-delim` | `_` | Delimiter for flattened keys |
+
+### bundr ls
+
+```
+bundr ls <prefix> [--no-recursive]
+```
+
+Outputs one ref per line (e.g. `ps:/app/db_host`).
+
+### bundr exec
+
+```
+bundr exec [--from <prefix>]... [flags] -- <command> [args...]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-f`, `--from` | | Source prefix; may be repeated; later entries win |
+| `--no-flatten` | false | Disable JSON key flattening |
+| `--upper` | true | Uppercase variable names |
+| `--flatten-delim` | `_` | Delimiter for flattened keys |
+| `--array-mode` | `join` | `join`, `index`, or `json` |
+| `--array-join-delim` | `,` | Delimiter for `join` mode |
+
+### bundr jsonize
+
+```
+bundr jsonize <target-ref> --frompath <prefix> [--force]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--frompath` | SSM prefix to read from |
+| `--force` | Overwrite if the target already exists |
+
+### bundr completion
+
+```
+bundr completion bash|zsh|fish
+```
+
+### bundr cache
+
+```
+bundr cache refresh
+```
+
+## Configuration
+
+### Priority order
+
+Settings are applied in this order (later sources override earlier ones):
+
+1. `~/.config/bundr/config.toml` — global defaults
+2. `.bundr.toml` — project-level settings (in current directory)
+3. `AWS_REGION`, `AWS_PROFILE` — standard AWS environment variables
+4. `BUNDR_AWS_REGION`, `BUNDR_AWS_PROFILE` — bundr-specific env vars (override `AWS_*`)
+5. `--region`, `--profile`, `--kms-key-id` CLI flags — highest priority
+
+### config.toml
+
+`~/.config/bundr/config.toml` and `.bundr.toml` use the same format:
 
 ```toml
 [aws]
@@ -232,75 +364,59 @@ profile = "my-profile"
 kms_key_id = "alias/my-key"
 ```
 
-### グローバル設定ファイル（~/.config/bundr/config.toml）
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `AWS_REGION` | AWS region (standard) |
+| `AWS_PROFILE` | AWS profile name (standard) |
+| `BUNDR_AWS_REGION` | AWS region (overrides `AWS_REGION`) |
+| `BUNDR_AWS_PROFILE` | AWS profile name (overrides `AWS_PROFILE`) |
+| `BUNDR_KMS_KEY_ID` | KMS key ID or ARN |
+| `BUNDR_AWS_KMS_KEY_ID` | Alias for `BUNDR_KMS_KEY_ID` |
+
+## AWS authentication
+
+bundr uses the standard AWS SDK v2 credential chain:
+
+1. Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+2. AWS profiles (`~/.aws/credentials`, `~/.aws/config`)
+3. IAM instance roles (EC2, ECS, Lambda, etc.)
+
+Override the profile for a single command:
+
+```bash
+bundr ls ps:/app/ --profile my-profile
+```
+
+Override via environment variable:
+
+```bash
+AWS_PROFILE=my-profile bundr ls ps:/app/
+```
+
+Set a default in the project config:
 
 ```toml
+# .bundr.toml
 [aws]
-region = "ap-northeast-1"
-profile = "default"
+profile = "my-profile"
 ```
 
-### 環境変数一覧
+## Tag schema
 
-| 変数名 | 説明 | 例 |
-|-------|------|---|
-| `AWS_REGION` | AWS リージョン（標準） | `ap-northeast-1` |
-| `AWS_PROFILE` | AWS プロファイル名（標準） | `my-profile` |
-| `BUNDR_AWS_REGION` | AWS リージョン（bundr 固有、後方互換） | `ap-northeast-1` |
-| `BUNDR_AWS_PROFILE` | AWS プロファイル名（bundr 固有、後方互換） | `my-profile` |
-| `BUNDR_KMS_KEY_ID` | KMS キー ID または ARN | `alias/my-key` |
-| `BUNDR_AWS_KMS_KEY_ID` | KMS キー ID または ARN（後方互換） | `alias/my-key` |
+bundr tags every managed parameter:
 
-## AWS 認証設定
+| Tag | Value | Purpose |
+|-----|-------|---------|
+| `cli` | `bundr` | Identifies bundr-managed resources |
+| `cli-store-mode` | `raw` or `json` | Controls decoding on `get` and `export` |
+| `cli-schema` | `v1` | Schema version |
 
-bundr は AWS SDK v2 の標準認証チェーンを使用します:
-
-1. 環境変数（`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`）
-2. AWS プロファイル（`~/.aws/credentials`）
-3. IAM ロール（EC2, ECS, Lambda 等）
-
-特定のプロファイルを使用する場合:
-
-```bash
-# CLI フラグで指定
-bundr ls ps:/app/ --profile my-profile
-
-# 環境変数で指定
-AWS_PROFILE=my-profile bundr ls ps:/app/
-
-# 設定ファイルで指定
-echo '[aws]\nprofile = "my-profile"' > .bundr.toml
-```
-
-## シェル補完
-
-```bash
-# Zsh（~/.zshrc に追加）
-eval "$(bundr completion zsh)"
-
-# Bash（~/.bashrc に追加）
-eval "$(bundr completion bash)"
-
-# Fish（~/.config/fish/config.fish に追加）
-bundr completion fish | source
-```
-
-## タグスキーマ
-
-bundr が管理するすべてのパラメータには以下のタグが自動的に付与されます:
-
-| タグ名 | 値 | 説明 |
-|-------|---|------|
-| `cli` | `bundr` | bundr が管理するリソースを識別 |
-| `cli-store-mode` | `raw` または `json` | ストレージモード |
-| `cli-schema` | `v1` | スキーマバージョン |
-
-これらのタグは `bundr get` / `bundr export` 時の自動デコードに使用されます。
-
-## ライセンス
+## License
 
 MIT
 
 ---
 
-実際のコード: https://github.com/youyo/bundr
+[日本語](README.ja.md)

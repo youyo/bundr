@@ -67,7 +67,7 @@ func newJsonizeTestContext(t *testing.T) (*backend.MockBackend, *Context) {
 // setupJsonizeStdoutCmd は stdout モード（--to なし）の JsonizeCmd を作成する。
 func setupJsonizeStdoutCmd(frompath string, opts ...func(*JsonizeCmd)) *JsonizeCmd {
 	cmd := &JsonizeCmd{
-		Frompath: frompath,
+		Frompath: []string{frompath},
 	}
 	for _, opt := range opts {
 		opt(cmd)
@@ -86,7 +86,7 @@ func setupJsonizeStdoutCmdWithBuf(frompath string, opts ...func(*JsonizeCmd)) (*
 // setupJsonizeSaveCmd は save モード（--to あり）の JsonizeCmd を作成する。
 func setupJsonizeSaveCmd(frompath, to string, opts ...func(*JsonizeCmd)) *JsonizeCmd {
 	cmd := &JsonizeCmd{
-		Frompath: frompath,
+		Frompath: []string{frompath},
 		To:       &to,
 	}
 	for _, opt := range opts {
@@ -194,6 +194,109 @@ func TestJsonizeCmdStdout(t *testing.T) {
 		if _, ok := gotMap["config"]; !ok {
 			t.Errorf("expected 'config' key in result JSON")
 		}
+	})
+}
+
+// --- JS-06~: 複数 frompath / 末端パラメータ ---
+
+func TestJsonizeCmdMultiFrompath(t *testing.T) {
+	t.Run("JS-06-multi-frompath-prefix", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/a/app/HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
+		_ = mb.Put(ctx, "ps:/a/db/PORT", backend.PutOptions{Value: "5432", StoreMode: "raw"})
+
+		var buf bytes.Buffer
+		cmd := &JsonizeCmd{
+			Frompath: []string{"ps:/a/app/", "ps:/a/db/"},
+			out:      &buf,
+		}
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := strings.TrimSpace(buf.String())
+		assertJSONEqual(t, got, `{"host":"localhost","port":5432}`)
+	})
+
+	t.Run("JS-07-leaf-param", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/a/b/host", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
+
+		var buf bytes.Buffer
+		cmd := &JsonizeCmd{
+			Frompath: []string{"ps:/a/b/host"},
+			out:      &buf,
+		}
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := strings.TrimSpace(buf.String())
+		assertJSONEqual(t, got, `{"host":"localhost"}`)
+	})
+
+	t.Run("JS-08-leaf-dotname", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/a/apiGateway.url", backend.PutOptions{Value: "https://api.example.com", StoreMode: "raw"})
+
+		var buf bytes.Buffer
+		cmd := &JsonizeCmd{
+			Frompath: []string{"ps:/a/apiGateway.url"},
+			out:      &buf,
+		}
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := strings.TrimSpace(buf.String())
+		assertJSONEqual(t, got, `{"apigateway.url":"https://api.example.com"}`)
+	})
+
+	t.Run("JS-09-multi-leaf", func(t *testing.T) {
+		mb, appCtx := newJsonizeTestContext(t)
+		ctx := context.Background()
+		_ = mb.Put(ctx, "ps:/a/url", backend.PutOptions{Value: "https://example.com", StoreMode: "raw"})
+		_ = mb.Put(ctx, "ps:/a/arn", backend.PutOptions{Value: "arn:aws:lambda:us-east-1:123:function:test", StoreMode: "raw"})
+
+		var buf bytes.Buffer
+		cmd := &JsonizeCmd{
+			Frompath: []string{"ps:/a/url", "ps:/a/arn"},
+			out:      &buf,
+		}
+		if err := cmd.Run(appCtx); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got := strings.TrimSpace(buf.String())
+		assertJSONEqual(t, got, `{"url":"https://example.com","arn":"arn:aws:lambda:us-east-1:123:function:test"}`)
+	})
+
+	t.Run("JS-10-leaf-not-found", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		var buf bytes.Buffer
+		cmd := &JsonizeCmd{
+			Frompath: []string{"ps:/a/nonexistent"},
+			out:      &buf,
+		}
+		err := cmd.Run(appCtx)
+		if err == nil {
+			t.Fatal("expected error for non-existent leaf parameter, got nil")
+		}
+		if !strings.Contains(err.Error(), "key not found") {
+			t.Errorf("error = %q, want to contain %q", err.Error(), "key not found")
+		}
+	})
+}
+
+func TestJsonizeCmdMultiFrompathSaveErrors(t *testing.T) {
+	t.Run("JSaveE-08-multi-self-ref", func(t *testing.T) {
+		_, appCtx := newJsonizeTestContext(t)
+		to := "ps:/b/config"
+		cmd := &JsonizeCmd{
+			Frompath: []string{"ps:/a/", "ps:/b/"},
+			To:       &to,
+		}
+		err := cmd.Run(appCtx)
+		assertErrContains(t, err, "overlaps")
 	})
 }
 
@@ -386,7 +489,7 @@ func TestJsonizeCmdSaveErrors(t *testing.T) {
 		_, appCtx := newJsonizeTestContext(t)
 		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/prod/config")
 		err := cmd.Run(appCtx)
-		assertErrContains(t, err, "self-reference not allowed")
+		assertErrContains(t, err, "overlaps")
 	})
 
 	t.Run("JSaveE-04-target-exists-no-force", func(t *testing.T) {

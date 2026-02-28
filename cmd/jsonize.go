@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
@@ -17,7 +18,7 @@ import (
 
 // JsonizeCmd represents the "jsonize" subcommand.
 type JsonizeCmd struct {
-	Frompath  string  `required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
+	Frompath  []string `required:"" predictor:"prefix" help:"Source prefix or leaf parameter (repeatable)"`
 	To        *string `optional:"" predictor:"ref" name:"to" help:"Target ref to save JSON (omit to print to stdout)"`
 	Store     *string `optional:"" enum:"raw,json" name:"store" help:"Storage mode for target (raw|json) [default: json]"`
 	ValueType *string `optional:"" enum:"string,secure" name:"value-type" help:"Value type (string|secure) [default: string]"`
@@ -34,13 +35,21 @@ func (c *JsonizeCmd) Run(appCtx *Context) error {
 		out = os.Stdout
 	}
 
-	// 1. frompath パース + sm: チェック
-	fromRef, err := backend.ParseRef(c.Frompath)
-	if err != nil {
-		return fmt.Errorf("jsonize command failed: invalid frompath ref: %w", err)
+	// 1. 全 frompath をパース + sm: チェック（バリデーションフェーズ）
+	type parsedFrom struct {
+		ref    backend.Ref
+		rawRef string
 	}
-	if fromRef.Type == backend.BackendTypeSM {
-		return fmt.Errorf("jsonize command failed: --frompath sm: backend is not supported (use ps: or psa:)")
+	var froms []parsedFrom
+	for _, fp := range c.Frompath {
+		ref, err := backend.ParseRef(fp)
+		if err != nil {
+			return fmt.Errorf("jsonize command failed: invalid frompath ref: %w", err)
+		}
+		if ref.Type == backend.BackendTypeSM {
+			return fmt.Errorf("jsonize command failed: --frompath sm: backend is not supported (use ps: or psa:)")
+		}
+		froms = append(froms, parsedFrom{ref: ref, rawRef: fp})
 	}
 
 	// 2. モード判定
@@ -51,7 +60,7 @@ func (c *JsonizeCmd) Run(appCtx *Context) error {
 		return err
 	}
 
-	// 4. [save モードのみ] target ref パース + 自己参照チェック
+	// 4. [save モードのみ] target ref パース + 全 frompath に対して自己参照チェック
 	var targetRef *backend.Ref
 	if !isStdoutMode {
 		ref, err := backend.ParseRef(*c.To)
@@ -60,25 +69,46 @@ func (c *JsonizeCmd) Run(appCtx *Context) error {
 		}
 		targetRef = &ref
 
-		fromBase := strings.TrimRight(fromRef.Path, "/") + "/"
-		if strings.HasPrefix(targetRef.Path+"/", fromBase) || targetRef.Path == strings.TrimRight(fromRef.Path, "/") {
-			return fmt.Errorf("jsonize command failed: target %q is within --frompath %q (self-reference not allowed)", *c.To, c.Frompath)
+		for _, f := range froms {
+			fromBase := strings.TrimRight(f.ref.Path, "/") + "/"
+			if strings.HasPrefix(targetRef.Path+"/", fromBase) || targetRef.Path == strings.TrimRight(f.ref.Path, "/") {
+				return fmt.Errorf("jsonize command failed: target %q overlaps with --frompath %q", *c.To, f.rawRef)
+			}
 		}
 	}
 
-	// 5. frompath バックエンド作成
-	fromBackend, err := appCtx.BackendFactory(fromRef.Type)
-	if err != nil {
-		return fmt.Errorf("jsonize command failed: create from backend: %w", err)
+	// 5. 各 frompath からパラメータ取得 + 末端パラメータ Get フォールバック
+	var allJsonizeEntries []jsonize.Entry
+	for _, f := range froms {
+		be, err := appCtx.BackendFactory(f.ref.Type)
+		if err != nil {
+			return fmt.Errorf("jsonize command failed: create from backend: %w", err)
+		}
+
+		entries, err := be.GetByPrefix(context.Background(), f.ref.Path, backend.GetByPrefixOptions{Recursive: true})
+		if err != nil {
+			return fmt.Errorf("jsonize command failed: get parameters: %w", err)
+		}
+
+		if len(entries) == 0 && !strings.HasSuffix(f.ref.Path, "/") {
+			// 末端パラメータフォールバック: プレフィックスでなくリーフパスの場合 Get で取得
+			val, err := be.Get(context.Background(), f.rawRef, backend.GetOptions{})
+			if err != nil {
+				return fmt.Errorf("jsonize command failed: get leaf parameter %q: %w", f.rawRef, err)
+			}
+			// path.Base でキー名を取得。Get はデコード済みの値を返すため StoreMode は raw
+			keyName := path.Base(f.ref.Path)
+			allJsonizeEntries = append(allJsonizeEntries, jsonize.Entry{
+				Path:      keyName,
+				Value:     val,
+				StoreMode: "raw",
+			})
+		} else {
+			allJsonizeEntries = append(allJsonizeEntries, parameterEntriesToJsonizeEntries(entries, f.ref.Path)...)
+		}
 	}
 
-	// 6. frompath からパラメータ一括取得
-	entries, err := fromBackend.GetByPrefix(context.Background(), fromRef.Path, backend.GetByPrefixOptions{Recursive: true})
-	if err != nil {
-		return fmt.Errorf("jsonize command failed: get parameters: %w", err)
-	}
-
-	// 7. [save モードのみ, --force=false] target 存在チェック
+	// 6. [save モードのみ, --force=false] target 存在チェック
 	if !isStdoutMode && !c.Force {
 		targetBackend, err := appCtx.BackendFactory(targetRef.Type)
 		if err != nil {
@@ -93,16 +123,13 @@ func (c *JsonizeCmd) Run(appCtx *Context) error {
 		}
 	}
 
-	// 8. ParameterEntry → jsonize.Entry 変換
-	jsonizeEntries := parameterEntriesToJsonizeEntries(entries, fromRef.Path)
-
-	// Build は常にコンパクト JSON を返す。stdout モードではインデントを追加する。
-	jsonBytes, err := jsonize.Build(jsonizeEntries, true)
+	// 7. Build JSON
+	jsonBytes, err := jsonize.Build(allJsonizeEntries, true)
 	if err != nil {
 		return fmt.Errorf("jsonize command failed: build json: %w", err)
 	}
 
-	// 9. stdout モード: インデント付き（または --compact）で out へ出力
+	// 8. stdout モード: インデント付き（または --compact）で out へ出力
 	if isStdoutMode {
 		var output []byte
 		if c.Compact {
@@ -121,7 +148,7 @@ func (c *JsonizeCmd) Run(appCtx *Context) error {
 		return nil
 	}
 
-	// 10. save モード: target バックエンドへ Put
+	// 9. save モード: target バックエンドへ Put
 	store := "json"
 	if c.Store != nil {
 		store = *c.Store

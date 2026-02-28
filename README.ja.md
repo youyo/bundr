@@ -165,14 +165,34 @@ bundr exec --from ps:/common/ --from ps:/app/prod/ -- python main.py
 
 ### bundr jsonize
 
-プレフィックス配下のパラメータを JSON として1つのキーにまとめて保存する。
+1つ以上のプレフィックス配下のパラメータを JSON にまとめて stdout に出力する。`--to` で保存先を指定することもできる。
 
 ```bash
-bundr jsonize <target-ref> --frompath <prefix> [--force]
+bundr jsonize --frompath <prefix|ref> [--frompath <prefix|ref>]... [--to <ref>] [--force] [--compact]
 ```
 
+| オプション | 説明 |
+|----------|------|
+| `--frompath` | 読み込み元の SSM プレフィックスまたはリーフ ref（複数指定可）|
+| `--to` | 保存先の ref（省略時は stdout に出力）|
+| `--force` | 保存先が既に存在する場合に上書き（`--to` と合わせて使用）|
+| `--compact` | インデントなしのコンパクト JSON で出力 |
+
 ```bash
-bundr jsonize sm:myapp-config --frompath ps:/app/
+# stdout に出力（デフォルト）
+bundr jsonize --frompath ps:/app/
+
+# 複数プレフィックスを統合
+bundr jsonize --frompath ps:/app/db/ --frompath ps:/app/api/
+
+# 末端パラメータ（リーフ）を指定
+bundr jsonize --frompath ps:/app/db_host
+
+# Secrets Manager に保存
+bundr jsonize --frompath ps:/app/ --to sm:myapp-config
+
+# 既存シークレットを上書き
+bundr jsonize --frompath ps:/app/ --to sm:myapp-config --force
 ```
 
 ### bundr completion

@@ -198,16 +198,40 @@ bundr exec --from ps:/app/ -- env | grep DB
 
 ### jsonize
 
-Reads all parameters under a prefix and stores them as a single JSON object in Secrets Manager:
+Reads parameters under one or more prefixes and outputs them as a single JSON object to stdout:
 
 ```bash
-bundr jsonize sm:myapp-config --frompath ps:/app/
+bundr jsonize --frompath ps:/app/
+```
+
+Combine multiple prefixes into one JSON object:
+
+```bash
+bundr jsonize --frompath ps:/app/db/ --frompath ps:/app/api/
+```
+
+Fetch a single leaf parameter (non-prefix path):
+
+```bash
+bundr jsonize --frompath ps:/app/db_host
+```
+
+Save the result to a Secrets Manager secret instead of stdout:
+
+```bash
+bundr jsonize --frompath ps:/app/ --to sm:myapp-config
 ```
 
 Use `--force` to overwrite an existing secret:
 
 ```bash
-bundr jsonize sm:myapp-config --frompath ps:/app/ --force
+bundr jsonize --frompath ps:/app/ --to sm:myapp-config --force
+```
+
+Compact output (no indentation):
+
+```bash
+bundr jsonize --frompath ps:/app/ --compact
 ```
 
 ### completion
@@ -321,13 +345,17 @@ bundr exec [--from <prefix>]... [flags] -- <command> [args...]
 ### bundr jsonize
 
 ```
-bundr jsonize <target-ref> --frompath <prefix> [--force]
+bundr jsonize --frompath <prefix|ref> [--frompath <prefix|ref>]... [--to <ref>] [--force] [--compact]
 ```
+
+Outputs JSON to stdout by default. Use `--to` to save to a parameter or secret.
 
 | Flag | Description |
 |------|-------------|
-| `--frompath` | SSM prefix to read from |
-| `--force` | Overwrite if the target already exists |
+| `--frompath` | SSM prefix or leaf ref to read from; may be repeated |
+| `--to` | Save output to this ref instead of stdout |
+| `--force` | Overwrite if the target already exists (requires `--to`) |
+| `--compact` | Compact JSON output (no indentation) |
 
 ### bundr completion
 

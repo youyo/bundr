@@ -19,9 +19,14 @@ type mockSSMClient struct {
 	getParametersByPathFn   func(ctx context.Context, input *ssm.GetParametersByPathInput, optFns ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error)
 	addTagsToResourceFn     func(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error)
 	listTagsForResourceFn   func(ctx context.Context, input *ssm.ListTagsForResourceInput, optFns ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error)
+
+	// Call recording fields for verifying call sequences
+	putParameterCalls      []*ssm.PutParameterInput
+	addTagsToResourceCalls []*ssm.AddTagsToResourceInput
 }
 
 func (m *mockSSMClient) PutParameter(ctx context.Context, input *ssm.PutParameterInput, optFns ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
+	m.putParameterCalls = append(m.putParameterCalls, input)
 	return m.putParameterFn(ctx, input, optFns...)
 }
 
@@ -37,6 +42,7 @@ func (m *mockSSMClient) GetParametersByPath(ctx context.Context, input *ssm.GetP
 }
 
 func (m *mockSSMClient) AddTagsToResource(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+	m.addTagsToResourceCalls = append(m.addTagsToResourceCalls, input)
 	return m.addTagsToResourceFn(ctx, input, optFns...)
 }
 
@@ -205,11 +211,11 @@ func TestPSBackend_PutTags(t *testing.T) {
 	var capturedTags []ssmtypes.Tag
 
 	client := &mockSSMClient{
-		putParameterFn: func(_ context.Context, input *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
-			capturedTags = input.Tags
+		putParameterFn: func(_ context.Context, _ *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
 			return &ssm.PutParameterOutput{}, nil
 		},
 		addTagsToResourceFn: func(_ context.Context, input *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+			capturedTags = input.Tags
 			return &ssm.AddTagsToResourceOutput{}, nil
 		},
 	}
@@ -223,7 +229,7 @@ func TestPSBackend_PutTags(t *testing.T) {
 		t.Fatalf("Put() error: %v", err)
 	}
 
-	// Should have the 3 managed tags
+	// Should have the 3 managed tags via AddTagsToResource
 	tagMap := make(map[string]string)
 	for _, tag := range capturedTags {
 		tagMap[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
@@ -580,6 +586,95 @@ func TestPSBackend_GetByPrefix_TagsAPIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "get store mode for") {
 		t.Errorf("error = %q, want to contain %q", err.Error(), "get store mode for")
+	}
+}
+
+// --- Put 2-step tests (PutParameter + AddTagsToResource) ---
+
+// TestPSBackend_Put_TwoStep verifies that Put calls PutParameter WITHOUT Tags,
+// then calls AddTagsToResource separately with the managed tags.
+func TestPSBackend_Put_TwoStep(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		putParameterFn: func(_ context.Context, _ *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
+			return &ssm.PutParameterOutput{}, nil
+		},
+		addTagsToResourceFn: func(_ context.Context, _ *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+			return &ssm.AddTagsToResourceOutput{}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	err := backend.Put(ctx, "ps:/app/test/KEY", PutOptions{
+		Value:     "hello",
+		StoreMode: tags.StoreModeRaw,
+	})
+	if err != nil {
+		t.Fatalf("Put() error: %v", err)
+	}
+
+	// Step 1: PutParameter should be called WITHOUT Tags
+	if len(client.putParameterCalls) != 1 {
+		t.Fatalf("PutParameter called %d times, want 1", len(client.putParameterCalls))
+	}
+	if len(client.putParameterCalls[0].Tags) != 0 {
+		t.Errorf("PutParameter should not have Tags, got %d tags", len(client.putParameterCalls[0].Tags))
+	}
+
+	// Step 2: AddTagsToResource should be called with managed tags
+	if len(client.addTagsToResourceCalls) != 1 {
+		t.Fatalf("AddTagsToResource called %d times, want 1", len(client.addTagsToResourceCalls))
+	}
+	addTagsInput := client.addTagsToResourceCalls[0]
+	if aws.ToString(addTagsInput.ResourceId) != "/app/test/KEY" {
+		t.Errorf("ResourceId = %q, want %q", aws.ToString(addTagsInput.ResourceId), "/app/test/KEY")
+	}
+	if addTagsInput.ResourceType != ssmtypes.ResourceTypeForTaggingParameter {
+		t.Errorf("ResourceType = %v, want %v", addTagsInput.ResourceType, ssmtypes.ResourceTypeForTaggingParameter)
+	}
+	tagMap := make(map[string]string)
+	for _, tag := range addTagsInput.Tags {
+		tagMap[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+	if tagMap[tags.TagCLI] != tags.TagCLIValue {
+		t.Errorf("tag %s = %q, want %q", tags.TagCLI, tagMap[tags.TagCLI], tags.TagCLIValue)
+	}
+	if tagMap[tags.TagStoreMode] != tags.StoreModeRaw {
+		t.Errorf("tag %s = %q, want %q", tags.TagStoreMode, tagMap[tags.TagStoreMode], tags.StoreModeRaw)
+	}
+	if tagMap[tags.TagSchema] != tags.TagSchemaValue {
+		t.Errorf("tag %s = %q, want %q", tags.TagSchema, tagMap[tags.TagSchema], tags.TagSchemaValue)
+	}
+}
+
+// TestPSBackend_Put_AddTagsFail_Error verifies that when AddTagsToResource fails,
+// the error message clearly indicates the parameter was saved but tags are missing.
+func TestPSBackend_Put_AddTagsFail_Error(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		putParameterFn: func(_ context.Context, _ *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
+			return &ssm.PutParameterOutput{}, nil
+		},
+		addTagsToResourceFn: func(_ context.Context, _ *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+			return nil, fmt.Errorf("AccessDeniedException: not authorized")
+		},
+	}
+
+	backend := NewPSBackend(client)
+	err := backend.Put(ctx, "ps:/app/test/KEY", PutOptions{
+		Value:     "hello",
+		StoreMode: tags.StoreModeRaw,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "AddTagsToResource failed") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "AddTagsToResource failed")
+	}
+	if !strings.Contains(err.Error(), "parameter was saved but tags are missing") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "parameter was saved but tags are missing")
 	}
 }
 

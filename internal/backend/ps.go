@@ -70,12 +70,12 @@ func (b *PSBackend) Put(ctx context.Context, ref string, opts PutOptions) error 
 		})
 	}
 
+	// Step 1: PutParameter WITHOUT Tags (Overwrite=true and Tags cannot be used together)
 	input := &ssm.PutParameterInput{
 		Name:      aws.String(parsed.Path),
 		Value:     aws.String(value),
 		Type:      paramType,
 		Overwrite: aws.Bool(true),
-		Tags:      ssmTags,
 	}
 
 	// Set tier for Advanced parameters
@@ -88,9 +88,17 @@ func (b *PSBackend) Put(ctx context.Context, ref string, opts PutOptions) error 
 		input.KeyId = aws.String(opts.KMSKeyID)
 	}
 
-	_, err = b.client.PutParameter(ctx, input)
-	if err != nil {
+	if _, err = b.client.PutParameter(ctx, input); err != nil {
 		return fmt.Errorf("ssm PutParameter: %w", err)
+	}
+
+	// Step 2: AddTagsToResource to set managed tags separately
+	if _, err = b.client.AddTagsToResource(ctx, &ssm.AddTagsToResourceInput{
+		ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
+		ResourceId:   aws.String(parsed.Path),
+		Tags:         ssmTags,
+	}); err != nil {
+		return fmt.Errorf("ssm AddTagsToResource failed (parameter was saved but tags are missing; run 'bundr put' again to retry): %w", err)
 	}
 
 	return nil

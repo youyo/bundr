@@ -191,6 +191,64 @@ func TestExportCmd(t *testing.T) {
 				"export KEY='val'",
 			},
 		},
+		{
+			id:     "E-12",
+			from:   "ps:/app/prod/MY_KEY",
+			format: "shell",
+			setup: func(mb *backend.MockBackend) {
+				ctx := context.Background()
+				_ = mb.Put(ctx, "ps:/app/prod/MY_KEY", backend.PutOptions{Value: "myvalue", StoreMode: tags.StoreModeRaw})
+			},
+			want: []string{
+				"export MY_KEY='myvalue'",
+			},
+		},
+		{
+			id:     "E-13",
+			from:   "ps:/app/prod/MY_KEY",
+			format: "shell",
+			setup: func(mb *backend.MockBackend) {
+				ctx := context.Background()
+				_ = mb.Put(ctx, "ps:/app/prod/MY_KEY", backend.PutOptions{Value: "myvalue", StoreMode: tags.StoreModeRaw})
+			},
+			cmdOpts: []func(*ExportCmd){
+				func(c *ExportCmd) { c.Upper = false },
+			},
+			want: []string{
+				"export my_key='myvalue'",
+			},
+		},
+		{
+			id:     "E-14",
+			from:   "ps:/app/prod/MISSING",
+			format: "shell",
+			setup:  func(mb *backend.MockBackend) {}, // no data
+			wantErr: "key not found",
+		},
+		{
+			id:     "E-15",
+			from:   "ps:/app/prod/",
+			format: "shell",
+			setup: func(mb *backend.MockBackend) {
+				ctx := context.Background()
+				_ = mb.Put(ctx, "ps:/app/prod/api.url", backend.PutOptions{Value: "http://x", StoreMode: tags.StoreModeRaw})
+			},
+			want: []string{
+				"export API_URL='http://x'",
+			},
+		},
+		{
+			id:     "E-16",
+			from:   "ps:/app/prod/",
+			format: "shell",
+			setup: func(mb *backend.MockBackend) {
+				ctx := context.Background()
+				_ = mb.Put(ctx, "ps:/app/prod/CFG", backend.PutOptions{Value: `{"api.url":"http://x"}`, StoreMode: tags.StoreModeJSON})
+			},
+			want: []string{
+				"export CFG_API_URL='http://x'",
+			},
+		},
 	}
 
 	for _, tc := range tests {

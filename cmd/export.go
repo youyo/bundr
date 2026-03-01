@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -55,6 +56,20 @@ func buildVars(ctx context.Context, appCtx *Context, opts VarsBuildOptions) (map
 
 	vars := make(map[string]string)
 
+	// Leaf parameter fallback: if GetByPrefix returns nothing and
+	// the path does not end with "/", try Get for a single key.
+	if len(entries) == 0 && !strings.HasSuffix(ref.Path, "/") {
+		val, err := b.Get(ctx, opts.From, backend.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		keyName := path.Base(ref.Path)
+		normalizedKey := flatten.ApplyCasing(keyName, flatOpts)
+		normalizedKey = strings.ReplaceAll(normalizedKey, ".", opts.FlattenDelim)
+		vars[normalizedKey] = val
+		return vars, nil
+	}
+
 	for _, entry := range entries {
 		keyPrefix := pathToKey(entry.Path, ref.Path, opts.FlattenDelim)
 
@@ -64,10 +79,12 @@ func buildVars(ctx context.Context, appCtx *Context, opts VarsBuildOptions) (map
 				return nil, fmt.Errorf("flatten %s: %w", entry.Path, err)
 			}
 			for k, v := range kvs {
+				k = strings.ReplaceAll(k, ".", opts.FlattenDelim)
 				vars[k] = v
 			}
 		} else {
 			normalizedKey := flatten.ApplyCasing(keyPrefix, flatOpts)
+			normalizedKey = strings.ReplaceAll(normalizedKey, ".", opts.FlattenDelim)
 			vars[normalizedKey] = entry.Value
 		}
 	}

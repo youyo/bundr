@@ -28,6 +28,11 @@ type GetByPrefixCall struct {
 	Opts   GetByPrefixOptions
 }
 
+// DescribeCall records a call to Describe.
+type DescribeCall struct {
+	Ref string
+}
+
 type mockEntry struct {
 	Value     string
 	StoreMode string
@@ -41,6 +46,7 @@ type MockBackend struct {
 	PutCalls         []PutCall
 	GetCalls         []GetCall
 	GetByPrefixCalls []GetByPrefixCall
+	DescribeCalls    []DescribeCall
 }
 
 // NewMockBackend creates a new MockBackend.
@@ -149,6 +155,43 @@ func (m *MockBackend) GetByPrefix(_ context.Context, prefix string, opts GetByPr
 		})
 	}
 	return result, nil
+}
+
+// Describe returns metadata about a stored entry.
+func (m *MockBackend) Describe(_ context.Context, ref string) (*DescribeOutput, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	m.DescribeCalls = append(m.DescribeCalls, DescribeCall{Ref: ref})
+
+	entry, ok := m.store[ref]
+	if !ok {
+		return nil, fmt.Errorf("key not found: %s", ref)
+	}
+
+	parsed, err := ParseRef(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &DescribeOutput{
+		Path:    parsed.Path,
+		Version: 1,
+		Tags:    entry.Tags,
+	}
+
+	switch parsed.Type {
+	case BackendTypePS:
+		out.ParameterType = "String"
+		out.Tier = "Standard"
+	case BackendTypePSA:
+		out.ParameterType = "String"
+		out.Tier = "Advanced"
+	case BackendTypeSM:
+		// SM-specific fields left as zero values in mock
+	}
+
+	return out, nil
 }
 
 // decodeJSON decodes a JSON-encoded value.

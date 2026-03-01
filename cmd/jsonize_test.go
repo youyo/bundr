@@ -51,6 +51,10 @@ func (e *getByPrefixErrorBackend) GetByPrefix(_ context.Context, _ string, _ bac
 	return nil, e.err
 }
 
+func (e *getByPrefixErrorBackend) Describe(_ context.Context, _ string) (*backend.DescribeOutput, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 // --- テストヘルパー関数 ---
 
 func newJsonizeTestContext(t *testing.T) (*backend.MockBackend, *Context) {

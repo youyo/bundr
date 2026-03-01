@@ -119,6 +119,34 @@ func (b *SMBackend) Get(ctx context.Context, ref string, opts GetOptions) (strin
 	return value, nil
 }
 
+// Describe retrieves metadata about a secret.
+func (b *SMBackend) Describe(ctx context.Context, ref string) (*DescribeOutput, error) {
+	desc, err := b.client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
+		SecretId: aws.String(ref),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe secret: %w", err)
+	}
+
+	tagMap := make(map[string]string, len(desc.Tags))
+	for _, tag := range desc.Tags {
+		tagMap[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+
+	out := &DescribeOutput{
+		Path:        aws.ToString(desc.Name),
+		ARN:         aws.ToString(desc.ARN),
+		Tags:        tagMap,
+		CreatedDate: desc.CreatedDate,
+	}
+
+	if desc.LastChangedDate != nil {
+		out.LastModifiedDate = desc.LastChangedDate
+	}
+
+	return out, nil
+}
+
 // mapToSMTags converts a map to Secrets Manager Tag slice.
 func mapToSMTags(m map[string]string) []smtypes.Tag {
 	result := make([]smtypes.Tag, 0, len(m))

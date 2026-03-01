@@ -24,6 +24,7 @@ type CLI struct {
 	Exec       ExecCmd       `cmd:"" help:"Execute a command with parameters as environment variables."`
 	Completion CompletionCmd `cmd:"" help:"Output shell completion script."`
 	Jsonize    JsonizeCmd    `cmd:"" help:"Build a nested JSON from parameter prefix and store it."`
+	Describe   DescribeCmd   `cmd:"" help:"Show detailed metadata for a parameter or secret."`
 	Cache      CacheCmd      `cmd:"" help:"Manage local completion cache."`
 }
 

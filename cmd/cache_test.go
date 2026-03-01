@@ -157,3 +157,7 @@ func (e *errorBackend) Get(_ context.Context, _ string, _ backend.GetOptions) (s
 func (e *errorBackend) GetByPrefix(_ context.Context, _ string, _ backend.GetByPrefixOptions) ([]backend.ParameterEntry, error) {
 	return nil, e.err
 }
+
+func (e *errorBackend) Describe(_ context.Context, _ string) (*backend.DescribeOutput, error) {
+	return nil, e.err
+}

@@ -201,6 +201,56 @@ func (b *PSBackend) GetByPrefix(ctx context.Context, prefix string, opts GetByPr
 	return entries, nil
 }
 
+// Describe retrieves metadata about an SSM parameter.
+func (b *PSBackend) Describe(ctx context.Context, ref string) (*DescribeOutput, error) {
+	parsed, err := ParseRef(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	getOutput, err := b.client.GetParameter(ctx, &ssm.GetParameterInput{
+		Name:           aws.String(parsed.Path),
+		WithDecryption: aws.Bool(false),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ssm GetParameter: %w", err)
+	}
+
+	param := getOutput.Parameter
+
+	tagsOutput, err := b.client.ListTagsForResource(ctx, &ssm.ListTagsForResourceInput{
+		ResourceId:   aws.String(parsed.Path),
+		ResourceType: ssmtypes.ResourceTypeForTaggingParameter,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ssm ListTagsForResource: %w", err)
+	}
+
+	tagMap := make(map[string]string, len(tagsOutput.TagList))
+	for _, tag := range tagsOutput.TagList {
+		tagMap[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+
+	tier := "Standard"
+	if parsed.Type == BackendTypePSA {
+		tier = "Advanced"
+	}
+
+	out := &DescribeOutput{
+		Path:          aws.ToString(param.Name),
+		ARN:           aws.ToString(param.ARN),
+		Version:       param.Version,
+		ParameterType: string(param.Type),
+		Tier:          tier,
+		DataType:      aws.ToString(param.DataType),
+		Tags:          tagMap,
+	}
+
+	out.LastModifiedDate = param.LastModifiedDate
+
+	return out, nil
+}
+
 // getStoreMode retrieves the cli-store-mode tag for the given SSM parameter path.
 func (b *PSBackend) getStoreMode(ctx context.Context, path string) (string, error) {
 	tagsOut, err := b.client.ListTagsForResource(ctx, &ssm.ListTagsForResourceInput{

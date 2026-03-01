@@ -104,7 +104,7 @@ func TestSMBackend_PutCreateSecret(t *testing.T) {
 	client := newMockSMClient()
 	b := NewSMBackend(client)
 
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     "hello",
 		StoreMode: tags.StoreModeRaw,
 	})
@@ -139,7 +139,7 @@ func TestSMBackend_PutJSONScalar(t *testing.T) {
 	client := newMockSMClient()
 	b := NewSMBackend(client)
 
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     "hello",
 		StoreMode: tags.StoreModeJSON,
 	})
@@ -159,7 +159,7 @@ func TestSMBackend_PutJSONObject(t *testing.T) {
 	client := newMockSMClient()
 	b := NewSMBackend(client)
 
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     `{"key":"value"}`,
 		StoreMode: tags.StoreModeJSON,
 	})
@@ -180,7 +180,7 @@ func TestSMBackend_PutUpdateExisting(t *testing.T) {
 	b := NewSMBackend(client)
 
 	// First put creates the secret
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     "v1",
 		StoreMode: tags.StoreModeRaw,
 	})
@@ -189,7 +189,7 @@ func TestSMBackend_PutUpdateExisting(t *testing.T) {
 	}
 
 	// Second put should update (not fail)
-	err = b.Put(ctx, "my-secret", PutOptions{
+	err = b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     "v2",
 		StoreMode: tags.StoreModeJSON,
 	})
@@ -217,7 +217,7 @@ func TestSMBackend_GetRaw(t *testing.T) {
 	b := NewSMBackend(client)
 
 	// Pre-populate with raw value
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     "plain-text",
 		StoreMode: tags.StoreModeRaw,
 	})
@@ -225,7 +225,7 @@ func TestSMBackend_GetRaw(t *testing.T) {
 		t.Fatalf("Put() error: %v", err)
 	}
 
-	val, err := b.Get(ctx, "my-secret", GetOptions{})
+	val, err := b.Get(ctx, "sm:my-secret", GetOptions{})
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestSMBackend_GetJSONDecode(t *testing.T) {
 	b := NewSMBackend(client)
 
 	// Put JSON scalar
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     "hello",
 		StoreMode: tags.StoreModeJSON,
 	})
@@ -249,7 +249,7 @@ func TestSMBackend_GetJSONDecode(t *testing.T) {
 	}
 
 	// Get should auto-decode based on cli-store-mode tag
-	val, err := b.Get(ctx, "my-secret", GetOptions{})
+	val, err := b.Get(ctx, "sm:my-secret", GetOptions{})
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestSMBackend_GetJSONObject(t *testing.T) {
 	client := newMockSMClient()
 	b := NewSMBackend(client)
 
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     `{"key":"value"}`,
 		StoreMode: tags.StoreModeJSON,
 	})
@@ -271,7 +271,7 @@ func TestSMBackend_GetJSONObject(t *testing.T) {
 		t.Fatalf("Put() error: %v", err)
 	}
 
-	val, err := b.Get(ctx, "my-secret", GetOptions{})
+	val, err := b.Get(ctx, "sm:my-secret", GetOptions{})
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestSMBackend_GetForceRaw(t *testing.T) {
 	client := newMockSMClient()
 	b := NewSMBackend(client)
 
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     "hello",
 		StoreMode: tags.StoreModeJSON,
 	})
@@ -300,7 +300,7 @@ func TestSMBackend_GetForceRaw(t *testing.T) {
 	}
 
 	// ForceRaw should return the raw stored value (JSON-encoded)
-	val, err := b.Get(ctx, "my-secret", GetOptions{ForceRaw: true})
+	val, err := b.Get(ctx, "sm:my-secret", GetOptions{ForceRaw: true})
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestSMBackend_GetForceJSON(t *testing.T) {
 	b := NewSMBackend(client)
 
 	// Store raw but with JSON-encoded content
-	err := b.Put(ctx, "my-secret", PutOptions{
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
 		Value:     `"hello"`,
 		StoreMode: tags.StoreModeRaw,
 	})
@@ -324,7 +324,7 @@ func TestSMBackend_GetForceJSON(t *testing.T) {
 	}
 
 	// ForceJSON should decode regardless of tag
-	val, err := b.Get(ctx, "my-secret", GetOptions{ForceJSON: true})
+	val, err := b.Get(ctx, "sm:my-secret", GetOptions{ForceJSON: true})
 	if err != nil {
 		t.Fatalf("Get() error: %v", err)
 	}
@@ -338,9 +338,61 @@ func TestSMBackend_GetNotFound(t *testing.T) {
 	client := newMockSMClient()
 	b := NewSMBackend(client)
 
-	_, err := b.Get(ctx, "nonexistent", GetOptions{})
+	_, err := b.Get(ctx, "sm:nonexistent", GetOptions{})
 	if err == nil {
 		t.Error("Get() expected error for nonexistent secret, got nil")
+	}
+}
+
+func TestSMBackend_PutWithSMPrefix(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	// Put with full ref including "sm:" prefix (as called from cmd layer)
+	err := b.Put(ctx, "sm:my-secret", PutOptions{
+		Value:     "hello",
+		StoreMode: tags.StoreModeRaw,
+	})
+	if err != nil {
+		t.Fatalf("Put() error: %v", err)
+	}
+
+	// Secret must be stored under "my-secret", NOT "sm:my-secret"
+	if client.secrets["sm:my-secret"] != nil {
+		t.Error("secret stored under 'sm:my-secret' key; prefix should have been stripped")
+	}
+	secret := client.secrets["my-secret"]
+	if secret == nil {
+		t.Fatal("secret not found under 'my-secret'; ParseRef prefix stripping failed")
+	}
+	if secret.value != "hello" {
+		t.Errorf("stored value = %q, want %q", secret.value, "hello")
+	}
+}
+
+func TestSMBackend_GetWithSMPrefix(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	// Pre-populate without prefix (as internally stored)
+	client.secrets["my-secret"] = &mockSecret{
+		value: "hello",
+		tags: mapToSMTags(map[string]string{
+			tags.TagCLI:       tags.TagCLIValue,
+			tags.TagStoreMode: tags.StoreModeRaw,
+			tags.TagSchema:    tags.TagSchemaValue,
+		}),
+	}
+
+	// Get with full ref including "sm:" prefix (as called from cmd layer)
+	val, err := b.Get(ctx, "sm:my-secret", GetOptions{})
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if val != "hello" {
+		t.Errorf("Get() = %q, want %q", val, "hello")
 	}
 }
 

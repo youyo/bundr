@@ -33,6 +33,12 @@ func NewSMBackend(client smClient) *SMBackend {
 
 // Put creates or updates a secret in AWS Secrets Manager.
 func (b *SMBackend) Put(ctx context.Context, ref string, opts PutOptions) error {
+	parsed, err := ParseRef(ref)
+	if err != nil {
+		return err
+	}
+	secretName := parsed.Path
+
 	value := opts.Value
 
 	// JSON mode: encode scalar values
@@ -50,21 +56,21 @@ func (b *SMBackend) Put(ctx context.Context, ref string, opts PutOptions) error 
 	smTags := mapToSMTags(managedTags)
 
 	// Try to create the secret first
-	_, err := b.client.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
-		Name:         aws.String(ref),
+	_, createErr := b.client.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+		Name:         aws.String(secretName),
 		SecretString: aws.String(value),
 		Tags:         smTags,
 	})
-	if err != nil {
+	if createErr != nil {
 		// If the secret already exists, update it
 		var existsErr *smtypes.ResourceExistsException
-		if !errors.As(err, &existsErr) {
-			return fmt.Errorf("create secret: %w", err)
+		if !errors.As(createErr, &existsErr) {
+			return fmt.Errorf("create secret: %w", createErr)
 		}
 
 		// Update the secret value
 		_, err = b.client.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
-			SecretId:     aws.String(ref),
+			SecretId:     aws.String(secretName),
 			SecretString: aws.String(value),
 		})
 		if err != nil {
@@ -73,7 +79,7 @@ func (b *SMBackend) Put(ctx context.Context, ref string, opts PutOptions) error 
 
 		// Update tags
 		_, err = b.client.TagResource(ctx, &secretsmanager.TagResourceInput{
-			SecretId: aws.String(ref),
+			SecretId: aws.String(secretName),
 			Tags:     smTags,
 		})
 		if err != nil {
@@ -86,9 +92,15 @@ func (b *SMBackend) Put(ctx context.Context, ref string, opts PutOptions) error 
 
 // Get retrieves a secret value from AWS Secrets Manager.
 func (b *SMBackend) Get(ctx context.Context, ref string, opts GetOptions) (string, error) {
+	parsed, err := ParseRef(ref)
+	if err != nil {
+		return "", err
+	}
+	secretName := parsed.Path
+
 	// Get the secret value
 	result, err := b.client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
-		SecretId: aws.String(ref),
+		SecretId: aws.String(secretName),
 	})
 	if err != nil {
 		return "", fmt.Errorf("get secret value: %w", err)
@@ -103,7 +115,7 @@ func (b *SMBackend) Get(ctx context.Context, ref string, opts GetOptions) (strin
 
 	// Read tags to determine store mode
 	desc, err := b.client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
-		SecretId: aws.String(ref),
+		SecretId: aws.String(secretName),
 	})
 	if err != nil {
 		return "", fmt.Errorf("describe secret: %w", err)

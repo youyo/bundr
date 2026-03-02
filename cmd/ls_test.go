@@ -25,12 +25,12 @@ func newLsTestContext(t *testing.T) (*backend.MockBackend, *Context) {
 
 func TestLsCmd(t *testing.T) {
 	tests := []struct {
-		id          string
-		from        string
-		noRecursive bool
-		setup       func(mb *backend.MockBackend)
-		want        []string
-		wantErr     string
+		id        string
+		from      string
+		recursive bool
+		setup     func(mb *backend.MockBackend)
+		want      []string
+		wantErr   string
 	}{
 		{
 			// L-01: 3パラメータ → 3行のフル ref パスを昇順で出力
@@ -56,7 +56,7 @@ func TestLsCmd(t *testing.T) {
 			want:  []string{},
 		},
 		{
-			// L-03: --no-recursive → 直下のみ（サブパス除外）
+			// L-03: --recursive なし → 直下のみ（サブパス除外）
 			id:   "L-03",
 			from: "ps:/app/",
 			setup: func(mb *backend.MockBackend) {
@@ -64,7 +64,7 @@ func TestLsCmd(t *testing.T) {
 				_ = mb.Put(ctx, "ps:/app/db_host", backend.PutOptions{Value: "localhost", StoreMode: tags.StoreModeRaw})
 				_ = mb.Put(ctx, "ps:/app/sub/nested", backend.PutOptions{Value: "value", StoreMode: tags.StoreModeRaw})
 			},
-			noRecursive: true,
+			recursive: false,
 			want: []string{
 				"ps:/app/db_host",
 			},
@@ -106,9 +106,9 @@ func TestLsCmd(t *testing.T) {
 
 			var buf bytes.Buffer
 			cmd := &LsCmd{
-				From:        tc.from,
-				NoRecursive: tc.noRecursive,
-				out:         &buf,
+				From:      tc.from,
+				Recursive: tc.recursive,
+				out:       &buf,
 			}
 
 			err := cmd.Run(appCtx)
@@ -164,5 +164,56 @@ func TestLsCmd_AWSError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ls command failed") {
 		t.Errorf("error %q does not contain %q", err.Error(), "ls command failed")
+	}
+}
+
+func TestLsCmd_WritesCache(t *testing.T) {
+	mb := backend.NewMockBackend()
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/db_host", backend.PutOptions{Value: "localhost", StoreMode: tags.StoreModeRaw})
+	_ = mb.Put(ctx, "ps:/app/db_port", backend.PutOptions{Value: "5432", StoreMode: tags.StoreModeRaw})
+
+	mockStore := &MockStore{}
+	appCtx := &Context{
+		Config: &config.Config{},
+		BackendFactory: func(bt backend.BackendType) (backend.Backend, error) {
+			return mb, nil
+		},
+		CacheStore: mockStore,
+	}
+
+	var buf bytes.Buffer
+	cmd := &LsCmd{From: "ps:/app/", out: &buf}
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// キャッシュ Write が呼ばれたこと
+	if len(mockStore.WriteCalls) != 1 {
+		t.Fatalf("Write called %d times, want 1", len(mockStore.WriteCalls))
+	}
+	if got := mockStore.WriteCalls[0].BackendType; got != "ps" {
+		t.Errorf("backendType = %q, want %q", got, "ps")
+	}
+	if got := len(mockStore.WriteCalls[0].Entries); got != 2 {
+		t.Errorf("entries count = %d, want 2", got)
+	}
+}
+
+func TestLsCmd_NilCacheStore(t *testing.T) {
+	// CacheStore が nil でもパニックしないこと
+	mb := backend.NewMockBackend()
+	appCtx := &Context{
+		Config: &config.Config{},
+		BackendFactory: func(bt backend.BackendType) (backend.Backend, error) {
+			return mb, nil
+		},
+		CacheStore: nil,
+	}
+
+	var buf bytes.Buffer
+	cmd := &LsCmd{From: "ps:/app/", out: &buf}
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
 	}
 }

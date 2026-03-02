@@ -295,6 +295,64 @@ func TestExportCmd(t *testing.T) {
 	}
 }
 
+func TestExportCmd_WritesCache(t *testing.T) {
+	mb := backend.NewMockBackend()
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: tags.StoreModeRaw})
+	_ = mb.Put(ctx, "ps:/app/prod/DB_PORT", backend.PutOptions{Value: "5432", StoreMode: tags.StoreModeRaw})
+
+	mockStore := &MockStore{}
+	appCtx := &Context{
+		Config: &config.Config{},
+		BackendFactory: func(bt backend.BackendType) (backend.Backend, error) {
+			return mb, nil
+		},
+		CacheStore: mockStore,
+	}
+
+	var buf bytes.Buffer
+	cmd := setupExportCmd("ps:/app/prod/", "shell")
+	cmd.out = &buf
+
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// キャッシュ Write が呼ばれたこと
+	if len(mockStore.WriteCalls) != 1 {
+		t.Fatalf("Write called %d times, want 1", len(mockStore.WriteCalls))
+	}
+	if got := mockStore.WriteCalls[0].BackendType; got != "ps" {
+		t.Errorf("backendType = %q, want %q", got, "ps")
+	}
+	if got := len(mockStore.WriteCalls[0].Entries); got != 2 {
+		t.Errorf("entries count = %d, want 2", got)
+	}
+}
+
+func TestExportCmd_NilCacheStore(t *testing.T) {
+	// CacheStore が nil でもパニックしないこと
+	mb := backend.NewMockBackend()
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/prod/KEY", backend.PutOptions{Value: "val", StoreMode: tags.StoreModeRaw})
+
+	appCtx := &Context{
+		Config: &config.Config{},
+		BackendFactory: func(bt backend.BackendType) (backend.Backend, error) {
+			return mb, nil
+		},
+		CacheStore: nil,
+	}
+
+	var buf bytes.Buffer
+	cmd := setupExportCmd("ps:/app/prod/", "shell")
+	cmd.out = &buf
+
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+}
+
 func TestExportCmd_Errors(t *testing.T) {
 	tests := []struct {
 		id      string

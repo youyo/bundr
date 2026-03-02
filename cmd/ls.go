@@ -8,12 +8,13 @@ import (
 	"sort"
 
 	"github.com/youyo/bundr/internal/backend"
+	"github.com/youyo/bundr/internal/cache"
 )
 
 // LsCmd represents the "ls" subcommand.
 type LsCmd struct {
-	From        string `arg:"" required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
-	NoRecursive bool   `name:"no-recursive" help:"List only direct children"`
+	From      string `arg:"" required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
+	Recursive bool   `name:"recursive" help:"List recursively (default: non-recursive)"`
 
 	out io.Writer // for testing; nil means os.Stdout
 }
@@ -41,9 +42,21 @@ func (c *LsCmd) Run(appCtx *Context) error {
 		return fmt.Errorf("ls command failed: create backend: %w", err)
 	}
 
-	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{Recursive: !c.NoRecursive})
+	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{Recursive: c.Recursive})
 	if err != nil {
 		return fmt.Errorf("ls command failed: %w", err)
+	}
+
+	// コマンド実行後に即時キャッシュへ書き込む（Tab 補完の初回キャッシュミスを防ぐ）
+	if appCtx.CacheStore != nil {
+		cacheEntries := make([]cache.CacheEntry, 0, len(entries))
+		for _, e := range entries {
+			cacheEntries = append(cacheEntries, cache.CacheEntry{
+				Path:      e.Path,
+				StoreMode: e.StoreMode,
+			})
+		}
+		_ = appCtx.CacheStore.Write(string(ref.Type), cacheEntries)
 	}
 
 	// フル ref 形式（ps:/path/to/key）に変換してソート

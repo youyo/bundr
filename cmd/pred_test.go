@@ -48,13 +48,12 @@ func TestNewRefPredictor_CacheHitBGRefresh(t *testing.T) {
 	fn := newRefPredictor(store, bg)
 	candidates := fn("ps:/app")
 
-	if len(candidates) != 2 {
-		t.Errorf("expected 2 candidates, got %d: %v", len(candidates), candidates)
+	// 階層フィルタリング: /app/prod/DB_HOST と /app/prod/DB_PORT は ps:/app/prod/ に統合
+	if len(candidates) != 1 {
+		t.Errorf("expected 1 candidate, got %d: %v", len(candidates), candidates)
 	}
-	for _, c := range candidates {
-		if !strings.HasPrefix(c, "ps:/app") {
-			t.Errorf("unexpected candidate: %s", c)
-		}
+	if len(candidates) == 1 && candidates[0] != "ps:/app/" {
+		t.Errorf("expected ps:/app/, got %s", candidates[0])
 	}
 
 	if len(bg.LaunchCalls) == 0 {
@@ -436,6 +435,178 @@ func TestNewRefPredictor_AsPredictor(t *testing.T) {
 	result := predictor.Predict(complete.Args{Last: "ps:/app"})
 	if result == nil {
 		t.Error("expected non-nil result")
+	}
+}
+
+// TestHierarchicalFilter_IntermediateNode: 中間ノード → 親ディレクトリを返す（重複排除）
+func TestHierarchicalFilter_IntermediateNode(t *testing.T) {
+	entries := []cache.CacheEntry{
+		{Path: "/app/prod/DB_HOST", StoreMode: "raw"},
+		{Path: "/app/prod/DB_PORT", StoreMode: "json"},
+	}
+	candidates := hierarchicalFilter("/app/pr", entries, "ps")
+	if len(candidates) != 1 {
+		t.Errorf("expected 1 candidate, got %d: %v", len(candidates), candidates)
+	}
+	if len(candidates) == 1 && candidates[0] != "ps:/app/prod/" {
+		t.Errorf("expected ps:/app/prod/, got %s", candidates[0])
+	}
+}
+
+// TestHierarchicalFilter_LeafNode: リーフノード → フルパスを返す
+func TestHierarchicalFilter_LeafNode(t *testing.T) {
+	entries := []cache.CacheEntry{
+		{Path: "/app/prod/DB_HOST", StoreMode: "raw"},
+		{Path: "/app/prod/DB_PORT", StoreMode: "json"},
+		{Path: "/app/stg/DB_HOST", StoreMode: "raw"},
+	}
+	candidates := hierarchicalFilter("/app/prod/", entries, "ps")
+	if len(candidates) != 2 {
+		t.Errorf("expected 2 candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["ps:/app/prod/DB_HOST"] {
+		t.Errorf("expected ps:/app/prod/DB_HOST in %v", candidates)
+	}
+	if !found["ps:/app/prod/DB_PORT"] {
+		t.Errorf("expected ps:/app/prod/DB_PORT in %v", candidates)
+	}
+}
+
+// TestHierarchicalFilter_EmptyRefPath: 空 refPath → 第1階層のみ返す
+func TestHierarchicalFilter_EmptyRefPath(t *testing.T) {
+	entries := []cache.CacheEntry{
+		{Path: "/app/prod/DB_HOST", StoreMode: "raw"},
+		{Path: "/app/stg/DB_HOST", StoreMode: "raw"},
+		{Path: "/config/KEY", StoreMode: "raw"},
+	}
+	candidates := hierarchicalFilter("", entries, "ps")
+	if len(candidates) != 2 {
+		t.Errorf("expected 2 candidates (ps:/app/ and ps:/config/), got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["ps:/app/"] {
+		t.Errorf("expected ps:/app/ in %v", candidates)
+	}
+	if !found["ps:/config/"] {
+		t.Errorf("expected ps:/config/ in %v", candidates)
+	}
+}
+
+// TestHierarchicalFilter_SMBackend: SM シークレット名（スラッシュなし）はリーフとして返る
+func TestHierarchicalFilter_SMBackend(t *testing.T) {
+	entries := []cache.CacheEntry{
+		{Path: "my-secret", StoreMode: "raw"},
+		{Path: "another-secret", StoreMode: "raw"},
+	}
+	candidates := hierarchicalFilter("", entries, "sm")
+	if len(candidates) != 2 {
+		t.Errorf("expected 2 candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["sm:my-secret"] {
+		t.Errorf("expected sm:my-secret in %v", candidates)
+	}
+	if !found["sm:another-secret"] {
+		t.Errorf("expected sm:another-secret in %v", candidates)
+	}
+}
+
+// TestHierarchicalFilter_Deduplication: 同じ中間ノードは重複排除される
+func TestHierarchicalFilter_Deduplication(t *testing.T) {
+	entries := []cache.CacheEntry{
+		{Path: "/app/prod/DB_HOST", StoreMode: "raw"},
+		{Path: "/app/prod/DB_PORT", StoreMode: "raw"},
+		{Path: "/app/prod/API_KEY", StoreMode: "json"},
+	}
+	// "/app/" を入力すると prod/ 配下の3エントリは全て "ps:/app/prod/" に統合される
+	candidates := hierarchicalFilter("/app/", entries, "ps")
+	if len(candidates) != 1 {
+		t.Errorf("expected 1 deduplicated candidate, got %d: %v", len(candidates), candidates)
+	}
+	if len(candidates) == 1 && candidates[0] != "ps:/app/prod/" {
+		t.Errorf("expected ps:/app/prod/, got %s", candidates[0])
+	}
+}
+
+// TestNewRefPredictor_HierarchicalLeaf: refPredictor がリーフノードを返す
+func TestNewRefPredictor_HierarchicalLeaf(t *testing.T) {
+	psEntries := []cache.CacheEntry{
+		{Path: "/app/prod/DB_HOST", StoreMode: "raw"},
+		{Path: "/app/prod/DB_PORT", StoreMode: "json"},
+	}
+	store := &MockStore{
+		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
+			if backendType == "ps" {
+				return psEntries, nil
+			}
+			return nil, cache.ErrCacheNotFound
+		},
+		LastRefreshedAtFunc: func(backendType string) time.Time {
+			return time.Now()
+		},
+	}
+	bg := &MockBGLauncher{}
+	fn := newRefPredictor(store, bg)
+	candidates := fn("ps:/app/prod/")
+
+	if len(candidates) != 2 {
+		t.Errorf("expected 2 leaf candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["ps:/app/prod/DB_HOST"] {
+		t.Errorf("expected ps:/app/prod/DB_HOST in %v", candidates)
+	}
+	if !found["ps:/app/prod/DB_PORT"] {
+		t.Errorf("expected ps:/app/prod/DB_PORT in %v", candidates)
+	}
+}
+
+// TestNewRefPredictor_HierarchicalDirectory: refPredictor が中間ディレクトリを返す
+func TestNewRefPredictor_HierarchicalDirectory(t *testing.T) {
+	psEntries := []cache.CacheEntry{
+		{Path: "/app/prod/DB_HOST", StoreMode: "raw"},
+		{Path: "/app/stg/DB_HOST", StoreMode: "raw"},
+	}
+	store := &MockStore{
+		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
+			if backendType == "ps" {
+				return psEntries, nil
+			}
+			return nil, cache.ErrCacheNotFound
+		},
+		LastRefreshedAtFunc: func(backendType string) time.Time {
+			return time.Now()
+		},
+	}
+	bg := &MockBGLauncher{}
+	fn := newRefPredictor(store, bg)
+	candidates := fn("ps:/app/")
+
+	if len(candidates) != 2 {
+		t.Errorf("expected 2 directory candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["ps:/app/prod/"] {
+		t.Errorf("expected ps:/app/prod/ in %v", candidates)
+	}
+	if !found["ps:/app/stg/"] {
+		t.Errorf("expected ps:/app/stg/ in %v", candidates)
 	}
 }
 

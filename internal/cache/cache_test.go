@@ -48,7 +48,7 @@ func TestFileStore_Write_JSONSchema(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "ps.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "ps-default-default.json"))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -93,8 +93,8 @@ func TestFileStore_Write_Filename(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "psa.json")); err != nil {
-		t.Fatalf("expected psa.json to exist: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "psa-default-default.json")); err != nil {
+		t.Fatalf("expected psa-default-default.json to exist: %v", err)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestFileStore_Write_AutoCreateDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "ps.json")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(dir, "ps-default-default.json")); statErr != nil {
 		t.Fatalf("file not created: %v", statErr)
 	}
 }
@@ -155,7 +155,7 @@ func TestFileStore_Read_CorruptedJSON(t *testing.T) {
 	store := NewFileStoreWithDir(dir)
 
 	// 破損 JSON を書き込む
-	if err := os.WriteFile(filepath.Join(dir, "ps.json"), []byte("{{broken json{{"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ps-default-default.json"), []byte("{{broken json{{"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -201,7 +201,7 @@ func TestFileStore_Read_SchemaMismatch(t *testing.T) {
 		Entries:         []CacheEntry{},
 	}
 	data, _ := json.Marshal(cf)
-	if err := os.WriteFile(filepath.Join(dir, "ps.json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ps-default-default.json"), data, 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -217,7 +217,7 @@ func TestFileStore_Read_CorruptedFile_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFileStoreWithDir(dir)
 
-	if err := os.WriteFile(filepath.Join(dir, "ps.json"), []byte("not json at all"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ps-default-default.json"), []byte("not json at all"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -328,7 +328,7 @@ func TestFileStore_LastRefreshedAt_NotFound(t *testing.T) {
 
 // NewFileStore のデフォルトディレクトリが設定されること
 func TestNewFileStore(t *testing.T) {
-	s, err := NewFileStore()
+	s, err := NewFileStore("", "")
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestNewFileStore_XDGCacheHome(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", tmpDir)
 
-	s, err := NewFileStore()
+	s, err := NewFileStore("", "")
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestNewFileStore_XDGCacheHome(t *testing.T) {
 func TestNewFileStore_DefaultXDGPath(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 
-	s, err := NewFileStore()
+	s, err := NewFileStore("", "")
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestNewFileStore_DefaultXDGPath(t *testing.T) {
 func TestNewFileStore_RelativeXDGCacheHome(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "relative/path")
 
-	s, err := NewFileStore()
+	s, err := NewFileStore("", "")
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestFileStore_Read_NoReadPermission(t *testing.T) {
 	store := NewFileStoreWithDir(dir)
 
 	// 有効な JSON ファイルを作成してから権限を除去
-	cacheFile := filepath.Join(dir, "ps.json")
+	cacheFile := filepath.Join(dir, "ps-default-default.json")
 	if err := os.WriteFile(cacheFile, []byte(`{"schema_version":"v1","backend_type":"ps","entries":[]}`), 0o000); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestFileStore_Write_DoesNotStoreSecretValues(t *testing.T) {
 	}
 
 	// JSON ファイルを直接確認して "value" キーがないことをアサート
-	data, err := os.ReadFile(filepath.Join(dir, "ps.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "ps-default-default.json"))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -510,6 +510,98 @@ func TestNoopStore_LastRefreshedAt(t *testing.T) {
 // NoopStore: Store インターフェースを実装している
 func TestNoopStore_ImplementsStore(t *testing.T) {
 	var _ Store = &NoopStore{}
+}
+
+// NoopStore: Clear は nil を返す
+func TestNoopStore_Clear(t *testing.T) {
+	s := NewNoopStore()
+	if err := s.Clear(); err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+// cache-clear-001: Write 後 Clear すると全ファイルが削除される
+func TestFileStore_Clear_DeletesFiles(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFileStoreWithDir(dir)
+
+	// 複数バックエンドのファイルを作成
+	if err := store.Write("ps", []CacheEntry{{Path: "/app/key", StoreMode: "raw"}}); err != nil {
+		t.Fatalf("Write ps: %v", err)
+	}
+	if err := store.Write("sm", []CacheEntry{{Path: "my-secret", StoreMode: "raw"}}); err != nil {
+		t.Fatalf("Write sm: %v", err)
+	}
+
+	// Clear 前にファイルが存在することを確認
+	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	if len(files) == 0 {
+		t.Fatal("expected files to exist before Clear")
+	}
+
+	if err := store.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+
+	// Clear 後にファイルが存在しないことを確認
+	files, _ = filepath.Glob(filepath.Join(dir, "*.json"))
+	if len(files) != 0 {
+		t.Errorf("expected no files after Clear, got: %v", files)
+	}
+}
+
+// cache-clear-002: 空ディレクトリで Clear しても error にならない
+func TestFileStore_Clear_EmptyDir(t *testing.T) {
+	store := NewFileStoreWithDir(t.TempDir())
+	if err := store.Clear(); err != nil {
+		t.Errorf("Clear on empty dir: %v", err)
+	}
+}
+
+// CacheIdentifier: AWS_ACCESS_KEY_ID がある場合は ak-{先頭8文字}
+func TestCacheIdentifier_AccessKey(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+	got := CacheIdentifier("")
+	expected := "ak-AKIAIOSF" // 先頭8文字
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+}
+
+// CacheIdentifier: AWS_ACCESS_KEY_ID が短い場合はそのまま
+func TestCacheIdentifier_ShortAccessKey(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "SHORT")
+	got := CacheIdentifier("")
+	if got != "ak-SHORT" {
+		t.Errorf("expected %q, got %q", "ak-SHORT", got)
+	}
+}
+
+// CacheIdentifier: AWS_ACCESS_KEY_ID がない場合はプロファイル名
+func TestCacheIdentifier_Profile(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	got := CacheIdentifier("stratalog")
+	if got != "stratalog" {
+		t.Errorf("expected %q, got %q", "stratalog", got)
+	}
+}
+
+// CacheIdentifier: どちらもない場合は "default"
+func TestCacheIdentifier_Default(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	got := CacheIdentifier("")
+	if got != "default" {
+		t.Errorf("expected %q, got %q", "default", got)
+	}
+}
+
+// CacheIdentifier: プロファイル名の特殊文字はハイフンに変換
+func TestCacheIdentifier_ProfileSanitize(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	got := CacheIdentifier("my_profile/dev")
+	if got != "my-profile-dev" {
+		t.Errorf("expected %q, got %q", "my-profile-dev", got)
+	}
 }
 
 // Write ではアトミック更新（一時ファイル経由）が行われることを確認

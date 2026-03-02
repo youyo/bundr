@@ -13,10 +13,10 @@ func TestCompletionCmd(t *testing.T) {
 		want  string // 出力に含まれるべき文字列
 	}{
 		{
-			// C-01: bash → "complete -C" を含む補完スクリプト
+			// C-01: bash → "complete -o nospace -C" を含む補完スクリプト
 			id:    "C-01",
 			shell: "bash",
-			want:  "complete -C",
+			want:  "complete -o nospace -C",
 		},
 		{
 			// C-02: zsh → "bashcompinit" を含む補完スクリプト

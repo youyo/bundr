@@ -49,6 +49,8 @@ func (m *TestMockStore) LastRefreshedAt(backendType string) time.Time {
 	return time.Time{}
 }
 
+func (m *TestMockStore) Clear() error { return nil }
+
 // pred-001: キャッシュあり、prefix="ps:/app" → candidate paths を含む候補リスト
 func TestRefPredictorWithCached(t *testing.T) {
 	psEntries := []cache.CacheEntry{

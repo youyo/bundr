@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -14,6 +15,33 @@ const SchemaVersion = "v1"
 
 // ErrCacheNotFound はキャッシュが存在しない場合のエラー。
 var ErrCacheNotFound = errors.New("cache not found")
+
+// cacheKeyRe は英数字とハイフン以外の文字にマッチする。
+var cacheKeyRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+
+// sanitizeCacheKey はキャッシュキーを安全なファイル名部分に変換する。
+// 空文字の場合は "default" を返す。英数字とハイフン以外の文字はハイフンに置換する。
+func sanitizeCacheKey(s string) string {
+	if s == "" {
+		return "default"
+	}
+	return cacheKeyRe.ReplaceAllString(s, "-")
+}
+
+// CacheIdentifier は AWS アクセスキー (env) またはプロファイル名からキャッシュ識別子を返す。
+// aws login や aws-vault など短期クレデンシャル使用時も正しくスコープ分離する。
+func CacheIdentifier(profile string) string {
+	if ak := os.Getenv("AWS_ACCESS_KEY_ID"); ak != "" {
+		if len(ak) >= 8 {
+			return "ak-" + ak[:8]
+		}
+		return "ak-" + ak
+	}
+	if profile != "" {
+		return sanitizeCacheKey(profile)
+	}
+	return "default"
+}
 
 // CacheFile はキャッシュファイル全体を表す。
 type CacheFile struct {
@@ -38,11 +66,21 @@ type Store interface {
 	// LastRefreshedAt は指定バックエンドの最終 BG 更新時刻を返す。
 	// キャッシュが存在しない場合は zero time を返す。
 	LastRefreshedAt(backendType string) time.Time
+	// Clear はキャッシュディレクトリ内のすべてのキャッシュファイルを削除する。
+	Clear() error
 }
 
 // FileStore は ~/.cache/bundr/ へのファイルベースの実装。
 type FileStore struct {
-	baseDir string
+	baseDir    string
+	region     string
+	identifier string
+}
+
+// cacheFilePath は指定バックエンドのキャッシュファイルパスを返す。
+// 形式: {baseDir}/{backendType}-{sanitize(region)}-{sanitize(identifier)}.json
+func (s *FileStore) cacheFilePath(backendType string) string {
+	return filepath.Join(s.baseDir, backendType+"-"+sanitizeCacheKey(s.region)+"-"+sanitizeCacheKey(s.identifier)+".json")
 }
 
 // xdgCacheDir は XDG Base Directory Specification に従ってキャッシュディレクトリを返す。
@@ -61,12 +99,17 @@ func xdgCacheDir() (string, error) {
 }
 
 // NewFileStore はデフォルトキャッシュディレクトリを使用する FileStore を返す。
-func NewFileStore() (*FileStore, error) {
+// region と identifier はキャッシュファイル名のスコープ分離に使用する。
+func NewFileStore(region, identifier string) (*FileStore, error) {
 	cacheDir, err := xdgCacheDir()
 	if err != nil {
 		return nil, fmt.Errorf("get user cache dir: %w", err)
 	}
-	return &FileStore{baseDir: filepath.Join(cacheDir, "bundr")}, nil
+	return &FileStore{
+		baseDir:    filepath.Join(cacheDir, "bundr"),
+		region:     region,
+		identifier: identifier,
+	}, nil
 }
 
 // NewFileStoreWithDir はテスト用にカスタムディレクトリを指定できる。
@@ -91,7 +134,7 @@ func (s *FileStore) Write(backendType string, entries []CacheEntry) error {
 	if err := os.MkdirAll(s.baseDir, 0o700); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
-	target := filepath.Join(s.baseDir, backendType+".json")
+	target := s.cacheFilePath(backendType)
 	lockPath := target + ".lock"
 
 	return withExclusiveLock(lockPath, func() error {
@@ -134,6 +177,22 @@ func (s *FileStore) LastRefreshedAt(backendType string) time.Time {
 	return cf.LastRefreshedAt
 }
 
+// Clear はキャッシュディレクトリ内のすべての JSON ファイルを削除する。
+// 旧形式のキャッシュファイルも含めて全削除する。
+func (s *FileStore) Clear() error {
+	pattern := filepath.Join(s.baseDir, "*.json")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("cache clear: %w", err)
+	}
+	for _, f := range files {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("cache clear: %w", err)
+		}
+	}
+	return nil
+}
+
 // NoopStore は何もしない Store 実装。
 // キャッシュ初期化に失敗した場合（HOME 未設定など）のフォールバックとして使用し、
 // 補完機能を無効にしつつ put/get/export 等の通常 CLI 動作を継続させる。
@@ -151,9 +210,12 @@ func (n *NoopStore) Write(_ string, _ []CacheEntry) error { return nil }
 // LastRefreshedAt は常に zero time を返す。
 func (n *NoopStore) LastRefreshedAt(_ string) time.Time { return time.Time{} }
 
+// Clear は何もせずに成功を返す。
+func (n *NoopStore) Clear() error { return nil }
+
 // readFile は JSON キャッシュファイルを読み込んで CacheFile を返す内部ヘルパー。
 func (s *FileStore) readFile(backendType string) (*CacheFile, error) {
-	path := filepath.Join(s.baseDir, backendType+".json")
+	path := s.cacheFilePath(backendType)
 
 	data, err := os.ReadFile(path)
 	if err != nil {

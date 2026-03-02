@@ -53,7 +53,8 @@ func main() {
 
 	// 2. CacheStore 構築（失敗時は補完を無効にして通常 CLI を継続）
 	var cacheStore cache.Store
-	if fs, fsErr := cache.NewFileStore(); fsErr != nil {
+	identifier := cache.CacheIdentifier(cfg.AWS.Profile)
+	if fs, fsErr := cache.NewFileStore(cfg.AWS.Region, identifier); fsErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: cache init failed (completion disabled): %v\n", fsErr)
 		cacheStore = cache.NewNoopStore()
 	} else {

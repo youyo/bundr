@@ -16,8 +16,10 @@ type MockStore struct {
 	ReadFunc            func(backendType string) ([]cache.CacheEntry, error)
 	WriteFunc           func(backendType string, entries []cache.CacheEntry) error
 	LastRefreshedAtFunc func(backendType string) time.Time
+	ClearFunc           func() error
 	ReadCalls           []string
 	WriteCalls          []WriteCall
+	ClearCalls          int
 }
 
 // WriteCall は Write 呼び出しの記録。
@@ -47,6 +49,14 @@ func (m *MockStore) LastRefreshedAt(backendType string) time.Time {
 		return m.LastRefreshedAtFunc(backendType)
 	}
 	return time.Time{}
+}
+
+func (m *MockStore) Clear() error {
+	m.ClearCalls++
+	if m.ClearFunc != nil {
+		return m.ClearFunc()
+	}
+	return nil
 }
 
 // cmd-cache-001: cache refresh --prefix ps:/app/prod/ → GetByPrefix が呼ばれ、CacheStore.Write が呼ばれる
@@ -152,6 +162,35 @@ func TestCacheRefreshCmd_AWSError(t *testing.T) {
 	// キャッシュには書き込まれないこと
 	if len(mockStore.WriteCalls) != 0 {
 		t.Errorf("Write called %d times, want 0 (no write on error)", len(mockStore.WriteCalls))
+	}
+}
+
+// cmd-cache-clear-001: cache clear → CacheStore.Clear が呼ばれる
+func TestCacheClearCmd_Success(t *testing.T) {
+	mockStore := &MockStore{}
+	appCtx := &Context{CacheStore: mockStore}
+
+	cmd := &CacheClearCmd{}
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	if mockStore.ClearCalls != 1 {
+		t.Errorf("Clear called %d times, want 1", mockStore.ClearCalls)
+	}
+}
+
+// cmd-cache-clear-002: Clear がエラーを返した場合はそのまま伝搬する
+func TestCacheClearCmd_Error(t *testing.T) {
+	clearErr := errors.New("disk full")
+	mockStore := &MockStore{
+		ClearFunc: func() error { return clearErr },
+	}
+	appCtx := &Context{CacheStore: mockStore}
+
+	cmd := &CacheClearCmd{}
+	if err := cmd.Run(appCtx); err != clearErr {
+		t.Errorf("expected %v, got %v", clearErr, err)
 	}
 }
 

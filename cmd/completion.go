@@ -28,9 +28,9 @@ func (c *CompletionCmd) Run() error {
 	var script string
 	switch c.Shell {
 	case "bash":
-		script = fmt.Sprintf("complete -C %s bundr\n", bin)
+		script = fmt.Sprintf("complete -o nospace -C %s bundr\n", bin)
 	case "zsh":
-		script = fmt.Sprintf("autoload -U +X bashcompinit && bashcompinit\ncomplete -C %s bundr\n", bin)
+		script = fmt.Sprintf("autoload -U +X bashcompinit && bashcompinit\ncomplete -o nospace -C %s bundr\n", bin)
 	case "fish":
 		script = fmt.Sprintf(
 			"function __complete_bundr\n"+

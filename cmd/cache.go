@@ -11,6 +11,15 @@ import (
 // CacheCmd は cache サブコマンドの Kong 構造体。
 type CacheCmd struct {
 	Refresh CacheRefreshCmd `cmd:"" help:"Refresh the local cache by fetching paths from AWS."`
+	Clear   CacheClearCmd   `cmd:"" help:"Clear all local cache files."`
+}
+
+// CacheClearCmd はローカルキャッシュファイルを全て削除するサブコマンド。
+type CacheClearCmd struct{}
+
+// Run はキャッシュクリアコマンドを実行する。
+func (c *CacheClearCmd) Run(appCtx *Context) error {
+	return appCtx.CacheStore.Clear()
 }
 
 // CacheRefreshCmd はキャッシュを更新するサブコマンド。

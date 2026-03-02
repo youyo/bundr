@@ -105,6 +105,29 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory Back
 		// 1. prefix からバックエンドタイプを判定
 		ref, err := backend.ParseRef(prefix)
 		if err != nil {
+			// "sm:", "ps:", "psa:" — パスなしのバックエンドプレフィックス
+			// ParseRef は空パスを拒否するため、補完時は特別扱いする
+			if prefix == "sm:" || prefix == "ps:" || prefix == "psa:" {
+				btStr := strings.TrimSuffix(prefix, ":")
+				bgArg := makeBGArg(btStr)
+				entries, readErr := cacheStore.Read(btStr)
+				if readErr == cache.ErrCacheNotFound {
+					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
+					var livePath string
+					if btStr != "sm" {
+						livePath = "/"
+					}
+					liveEntries := fetchLive(factory, btStr, livePath)
+					return hierarchicalFilter("", liveEntries, btStr)
+				} else if readErr == nil {
+					candidates := hierarchicalFilter("", entries, btStr)
+					lastRefresh := cacheStore.LastRefreshedAt(btStr)
+					if time.Since(lastRefresh) > 10*time.Second {
+						_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
+					}
+					return candidates
+				}
+			}
 			return []string{}
 		}
 
@@ -176,6 +199,29 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory B
 		// 通常の prefix 指定
 		ref, err := backend.ParseRef(prefix)
 		if err != nil {
+			// "sm:", "ps:", "psa:" — パスなしのバックエンドプレフィックス
+			// ParseRef は空パスを拒否するため、補完時は特別扱いする
+			if prefix == "sm:" || prefix == "ps:" || prefix == "psa:" {
+				btStr := strings.TrimSuffix(prefix, ":")
+				bgArg := makeBGArg(btStr)
+				entries, readErr := cacheStore.Read(btStr)
+				if readErr == cache.ErrCacheNotFound {
+					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
+					var livePath string
+					if btStr != "sm" {
+						livePath = "/"
+					}
+					liveEntries := fetchLive(factory, btStr, livePath)
+					return hierarchicalFilter("", liveEntries, btStr)
+				} else if readErr == nil {
+					candidates := hierarchicalFilter("", entries, btStr)
+					lastRefresh := cacheStore.LastRefreshedAt(btStr)
+					if time.Since(lastRefresh) > 10*time.Second {
+						_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
+					}
+					return candidates
+				}
+			}
 			return []string{}
 		}
 

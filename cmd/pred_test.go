@@ -717,6 +717,151 @@ func TestNewRefPredictor_CacheMiss_WithFactory_DeepPartial(t *testing.T) {
 	}
 }
 
+// pred-cmd-019: RefPredictor - "sm:" キャッシュあり → シークレット一覧を返す
+func TestNewRefPredictor_SMColon_CacheHit(t *testing.T) {
+	smEntries := []cache.CacheEntry{
+		{Path: "my-secret", StoreMode: "raw"},
+		{Path: "another-secret", StoreMode: "raw"},
+	}
+	store := &MockStore{
+		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
+			if backendType == "sm" {
+				return smEntries, nil
+			}
+			return nil, cache.ErrCacheNotFound
+		},
+		LastRefreshedAtFunc: func(backendType string) time.Time {
+			return time.Now() // スロットリング内
+		},
+	}
+	bg := &MockBGLauncher{}
+	fn := newRefPredictor(store, bg, nil)
+	candidates := fn("sm:")
+
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["sm:my-secret"] {
+		t.Errorf("expected sm:my-secret in %v", candidates)
+	}
+	if !found["sm:another-secret"] {
+		t.Errorf("expected sm:another-secret in %v", candidates)
+	}
+	if len(bg.LaunchCalls) != 0 {
+		t.Errorf("expected no BG launch within 10s throttle, got %d", len(bg.LaunchCalls))
+	}
+}
+
+// pred-cmd-020: RefPredictor - "sm:" キャッシュなし + factory=nil → 空リスト + BG 起動
+func TestNewRefPredictor_SMColon_CacheMiss_NilFactory(t *testing.T) {
+	store := &MockStore{} // ErrCacheNotFound
+	bg := &MockBGLauncher{}
+	fn := newRefPredictor(store, bg, nil)
+	candidates := fn("sm:")
+
+	if len(candidates) != 0 {
+		t.Errorf("expected empty list on cache miss with nil factory, got %v", candidates)
+	}
+	if len(bg.LaunchCalls) == 0 {
+		t.Error("expected BGLauncher to be called on ErrCacheNotFound")
+	}
+}
+
+// pred-cmd-021: RefPredictor - "sm:" キャッシュなし + factory あり → 全シークレット返す
+func TestNewRefPredictor_SMColon_CacheMiss_WithFactory(t *testing.T) {
+	store := &MockStore{} // ErrCacheNotFound
+	bg := &MockBGLauncher{}
+	factory := makeTestFactory("sm:my-secret", "sm:another-secret")
+
+	fn := newRefPredictor(store, bg, factory)
+	candidates := fn("sm:")
+
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["sm:my-secret"] {
+		t.Errorf("expected sm:my-secret in %v", candidates)
+	}
+	if !found["sm:another-secret"] {
+		t.Errorf("expected sm:another-secret in %v", candidates)
+	}
+}
+
+// pred-cmd-022: RefPredictor - "ps:" キャッシュあり → "ps:/" 始まる候補を返す
+func TestNewRefPredictor_PSColon_CacheHit(t *testing.T) {
+	psEntries := []cache.CacheEntry{
+		{Path: "/app/prod/KEY", StoreMode: "raw"},
+		{Path: "/config/KEY", StoreMode: "raw"},
+	}
+	store := &MockStore{
+		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
+			if backendType == "ps" {
+				return psEntries, nil
+			}
+			return nil, cache.ErrCacheNotFound
+		},
+		LastRefreshedAtFunc: func(backendType string) time.Time {
+			return time.Now()
+		},
+	}
+	bg := &MockBGLauncher{}
+	fn := newRefPredictor(store, bg, nil)
+	candidates := fn("ps:")
+
+	if len(candidates) == 0 {
+		t.Fatal("expected non-empty candidates for ps: with cache")
+	}
+	for _, c := range candidates {
+		if !strings.HasPrefix(c, "ps:/") {
+			t.Errorf("expected ps:/ prefix, got %s", c)
+		}
+	}
+}
+
+// pred-cmd-023: PrefixPredictor - "sm:" キャッシュあり → シークレット一覧を返す
+func TestNewPrefixPredictor_SMColon_CacheHit(t *testing.T) {
+	smEntries := []cache.CacheEntry{
+		{Path: "my-secret", StoreMode: "raw"},
+		{Path: "another-secret", StoreMode: "raw"},
+	}
+	store := &MockStore{
+		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
+			if backendType == "sm" {
+				return smEntries, nil
+			}
+			return nil, cache.ErrCacheNotFound
+		},
+		LastRefreshedAtFunc: func(backendType string) time.Time {
+			return time.Now()
+		},
+	}
+	bg := &MockBGLauncher{}
+	fn := newPrefixPredictor(store, bg, nil)
+	candidates := fn("sm:")
+
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["sm:my-secret"] {
+		t.Errorf("expected sm:my-secret in %v", candidates)
+	}
+	if !found["sm:another-secret"] {
+		t.Errorf("expected sm:another-secret in %v", candidates)
+	}
+}
+
 // pred-cmd-T9: PrefixPredictor - キャッシュなし・factory あり・部分パス "ps:/s" → ps:/stratalog/ を返す
 func TestNewPrefixPredictor_CacheMiss_WithFactory_PartialPath(t *testing.T) {
 	store := &MockStore{} // ErrCacheNotFound

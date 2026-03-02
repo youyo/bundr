@@ -1,6 +1,6 @@
 # bundr
 
-A CLI for AWS Parameter Store and Secrets Manager.
+A CLI that unifies AWS Parameter Store and Secrets Manager.
 
 [![Release](https://img.shields.io/github/v/release/youyo/bundr)](https://github.com/youyo/bundr/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/youyo/bundr)](https://goreportcard.com/report/github.com/youyo/bundr)

@@ -29,6 +29,15 @@ func NewPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) complete.
 	})
 }
 
+// makeBGArg は cache refresh のバックグラウンド起動引数を返す。
+// sm: はパスの概念がないため "sm:" を返し、それ以外は "ps:/" 形式を返す。
+func makeBGArg(backendType string) string {
+	if backendType == "sm" {
+		return "sm:"
+	}
+	return backendType + ":/"
+}
+
 // hierarchicalFilter はキャッシュエントリから1階層分の候補を返す。
 // refPath が指し示す親ディレクトリ直下の中間ノードまたはリーフノードのみを返し、
 // 重複は排除する。
@@ -78,10 +87,7 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string)
 		}
 
 		backendType := string(ref.Type)
-		bgArg := backendType + ":/"
-		if backendType == "sm" {
-			bgArg = "sm:"
-		}
+		bgArg := makeBGArg(backendType)
 
 		// 2. キャッシュを読む
 		entries, err := cacheStore.Read(backendType)
@@ -116,11 +122,7 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 		if prefix == "" {
 			var candidates []string
 			for _, backendType := range []string{"ps", "psa", "sm"} {
-				// sm: のキャッシュリフレッシュ引数は "sm:"（空 path）、それ以外は "ps:/" 形式
-				refreshArg := backendType + ":/"
-				if backendType == "sm" {
-					refreshArg = "sm:"
-				}
+				refreshArg := makeBGArg(backendType)
 
 				entries, err := cacheStore.Read(backendType)
 				if err == cache.ErrCacheNotFound {
@@ -148,10 +150,7 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 		}
 
 		backendType := string(ref.Type)
-		bgArg := backendType + ":/"
-		if backendType == "sm" {
-			bgArg = "sm:"
-		}
+		bgArg := makeBGArg(backendType)
 
 		entries, err := cacheStore.Read(backendType)
 		if err == cache.ErrCacheNotFound {

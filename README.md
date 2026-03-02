@@ -133,12 +133,15 @@ List all parameter paths under a prefix:
 
 ```bash
 bundr ls ps:/app/
+bundr ls sm:myapp/          # Secrets Manager prefix
+bundr ls sm:                 # all secrets
 ```
 
 List only the immediate children (no recursion):
 
 ```bash
 bundr ls ps:/app/ --no-recursive
+bundr ls sm:myapp/ --no-recursive
 ```
 
 Count parameters:
@@ -264,7 +267,9 @@ bundr caches parameter paths locally to make tab completion fast. The cache refr
 Refresh the cache manually after adding new parameters:
 
 ```bash
-bundr cache refresh
+bundr cache refresh                  # refresh all backends
+bundr cache refresh ps:/app/         # refresh a specific Parameter Store prefix
+bundr cache refresh sm:              # refresh all Secrets Manager secrets
 ```
 
 ## Command reference

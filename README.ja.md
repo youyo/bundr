@@ -142,6 +142,8 @@ bundr ls <prefix> [--no-recursive]
 
 ```bash
 bundr ls ps:/app/
+bundr ls sm:myapp/             # Secrets Manager のプレフィックス
+bundr ls sm:                   # Secrets Manager の全シークレット
 bundr ls ps:/app/ --no-recursive  # サブディレクトリを展開しない
 ```
 
@@ -219,7 +221,9 @@ bundr completion fish | source
 パラメータ一覧キャッシュを管理する（補完高速化のため自動管理）。
 
 ```bash
-bundr cache refresh
+bundr cache refresh                 # 全バックエンドを更新
+bundr cache refresh ps:/app/        # 特定の Parameter Store プレフィックスを更新
+bundr cache refresh sm:             # Secrets Manager の全シークレットを更新
 ```
 
 ## グローバルフラグ

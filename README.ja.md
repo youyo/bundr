@@ -112,7 +112,7 @@ bundr get ps:/app/db_port --raw
 プレフィックス配下のパラメータを環境変数形式で出力する。
 
 ```bash
-bundr export <prefix> --format shell|dotenv|direnv [--no-recursive]
+bundr export <prefix> --format shell|dotenv|direnv [--recursive]
 ```
 
 | フォーマット | 出力形式 |
@@ -137,14 +137,14 @@ bundr export ps:/app/ --format direnv > .envrc
 プレフィックス配下のパラメータ一覧を表示する。
 
 ```bash
-bundr ls <prefix> [--no-recursive]
+bundr ls <prefix> [--recursive]
 ```
 
 ```bash
 bundr ls ps:/app/
 bundr ls sm:myapp/             # Secrets Manager のプレフィックス
 bundr ls sm:                   # Secrets Manager の全シークレット
-bundr ls ps:/app/ --no-recursive  # サブディレクトリを展開しない
+bundr ls ps:/app/ --recursive  # サブディレクトリを再帰的に展開
 ```
 
 ### bundr exec

@@ -137,11 +137,11 @@ bundr ls sm:myapp/          # Secrets Manager prefix
 bundr ls sm:                 # all secrets
 ```
 
-List only the immediate children (no recursion):
+List recursively (include all nested paths):
 
 ```bash
-bundr ls ps:/app/ --no-recursive
-bundr ls sm:myapp/ --no-recursive
+bundr ls ps:/app/ --recursive
+bundr ls sm:myapp/ --recursive
 ```
 
 Count parameters:
@@ -320,14 +320,14 @@ bundr export <prefix> --format shell|dotenv|direnv [flags]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--format` | | Output format (required) |
-| `--no-recursive` | false | List only immediate children |
+| `--recursive` | false | List recursively (include all nested paths) |
 | `--upper` | true | Uppercase variable names |
 | `--flatten-delim` | `_` | Delimiter for flattened keys |
 
 ### bundr ls
 
 ```
-bundr ls <prefix> [--no-recursive]
+bundr ls <prefix> [--recursive]
 ```
 
 Outputs one ref per line (e.g. `ps:/app/db_host`).

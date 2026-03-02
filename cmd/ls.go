@@ -42,7 +42,10 @@ func (c *LsCmd) Run(appCtx *Context) error {
 		return fmt.Errorf("ls command failed: create backend: %w", err)
 	}
 
-	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{Recursive: c.Recursive})
+	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{
+		Recursive:    c.Recursive,
+		SkipTagFetch: true,
+	})
 	if err != nil {
 		return fmt.Errorf("ls command failed: %w", err)
 	}

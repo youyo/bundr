@@ -180,9 +180,13 @@ func (b *PSBackend) GetByPrefix(ctx context.Context, prefix string, opts GetByPr
 			path := aws.ToString(param.Name)
 			value := aws.ToString(param.Value)
 
-			storeMode, err := b.getStoreMode(ctx, path)
-			if err != nil {
-				return nil, fmt.Errorf("get store mode for %s: %w", path, err)
+			var storeMode string
+			if !opts.SkipTagFetch {
+				var smErr error
+				storeMode, smErr = b.getStoreMode(ctx, path)
+				if smErr != nil {
+					return nil, fmt.Errorf("get store mode for %s: %w", path, smErr)
+				}
 			}
 
 			entries = append(entries, ParameterEntry{

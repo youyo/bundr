@@ -678,6 +678,44 @@ func TestPSBackend_Put_AddTagsFail_Error(t *testing.T) {
 	}
 }
 
+// PS-GB-08: SkipTagFetch=true → ListTagsForResource が呼ばれない、StoreMode は空文字
+func TestPSBackend_GetByPrefix_SkipTagFetch(t *testing.T) {
+	ctx := context.Background()
+	listTagsCalled := 0
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, _ *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{
+					{Name: aws.String("/app/prod/KEY1"), Value: aws.String("v1")},
+					{Name: aws.String("/app/prod/KEY2"), Value: aws.String("v2")},
+				},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			listTagsCalled++
+			return &ssm.ListTagsForResourceOutput{TagList: rawTagList()}, nil
+		},
+	}
+
+	b := NewPSBackend(client)
+	entries, err := b.GetByPrefix(ctx, "/app/prod/", GetByPrefixOptions{Recursive: true, SkipTagFetch: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	if listTagsCalled != 0 {
+		t.Errorf("ListTagsForResource called %d times, want 0 (SkipTagFetch=true)", listTagsCalled)
+	}
+	for _, e := range entries {
+		if e.StoreMode != "" {
+			t.Errorf("entry %s: StoreMode = %q, want empty string (SkipTagFetch=true)", e.Path, e.StoreMode)
+		}
+	}
+}
+
 // PS-GB-07: No tags -> default raw
 func TestPSBackend_GetByPrefix_DefaultStoreModeRaw(t *testing.T) {
 	ctx := context.Background()

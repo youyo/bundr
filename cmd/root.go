@@ -27,6 +27,9 @@ type CLI struct {
 	Cache      CacheCmd      `cmd:"" help:"Manage local completion cache."`
 }
 
+// BackendFactory は BackendType からバックエンドを生成する関数型。
+type BackendFactory func(backend.BackendType) (backend.Backend, error)
+
 // BGLauncher はバックグラウンド更新プロセスの起動を抽象化する。
 // main.go では ExecBGLauncher を注入。テスト時は MockBGLauncher を差し替え。
 type BGLauncher interface {
@@ -58,7 +61,7 @@ func (l *ExecBGLauncher) Launch(args ...string) error {
 type Context struct {
 	Config *config.Config
 	// BackendFactory creates a Backend for the given ref type.
-	BackendFactory func(refType backend.BackendType) (backend.Backend, error)
+	BackendFactory BackendFactory
 	// CacheStore はキャッシュ操作のインターフェース（テスト時は MockStore を差し替え）。
 	CacheStore cache.Store
 	// BGLauncher はバックグラウンド更新プロセスの起動（テスト時は MockBGLauncher を差し替え）。

@@ -26,10 +26,11 @@ var version = "dev" // goreleaser ldflags で上書き（-X main.version=...）
 type refPredictor struct {
 	store      cache.Store
 	bgLauncher cmd.BGLauncher
+	factory    cmd.BackendFactory
 }
 
 func (p *refPredictor) Predict(a complete.Args) []string {
-	return cmd.NewRefPredictor(p.store, p.bgLauncher).Predict(a)
+	return cmd.NewRefPredictor(p.store, p.bgLauncher, p.factory).Predict(a)
 }
 
 // prefixPredictor は prefix-style 補完を実装した complete.Predictor。
@@ -37,10 +38,11 @@ func (p *refPredictor) Predict(a complete.Args) []string {
 type prefixPredictor struct {
 	store      cache.Store
 	bgLauncher cmd.BGLauncher
+	factory    cmd.BackendFactory
 }
 
 func (p *prefixPredictor) Predict(a complete.Args) []string {
-	return cmd.NewPrefixPredictor(p.store, p.bgLauncher).Predict(a)
+	return cmd.NewPrefixPredictor(p.store, p.bgLauncher, p.factory).Predict(a)
 }
 
 func main() {
@@ -64,6 +66,9 @@ func main() {
 	// 3. BGLauncher 構築
 	bgLauncher := &cmd.ExecBGLauncher{}
 
+	// 3.5. 補完用 BackendFactory を事前構築（CLIフラグ反映前の cfg を使用）
+	completionFactory := cmd.BackendFactory(newBackendFactory(cfg))
+
 	// 4. Kong パーサー構築
 	cli := cmd.CLI{}
 	parser := kong.Must(&cli,
@@ -72,8 +77,8 @@ func main() {
 
 	// 5. kongplete で補完リクエストを処理
 	kongplete.Complete(parser,
-		kongplete.WithPredictor("ref", &refPredictor{store: cacheStore, bgLauncher: bgLauncher}),
-		kongplete.WithPredictor("prefix", &prefixPredictor{store: cacheStore, bgLauncher: bgLauncher}),
+		kongplete.WithPredictor("ref", &refPredictor{store: cacheStore, bgLauncher: bgLauncher, factory: completionFactory}),
+		kongplete.WithPredictor("prefix", &prefixPredictor{store: cacheStore, bgLauncher: bgLauncher, factory: completionFactory}),
 	)
 
 	// 6. --version フラグを早期チェック（Parse 前に処理）

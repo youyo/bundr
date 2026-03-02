@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -13,8 +14,8 @@ import (
 
 // NewRefPredictor は ref-style 補完（ps:/path..., psa:/path..., sm:name...）の
 // complete.Predictor を返す。main.go から kongplete.WithPredictor に渡す用途。
-func NewRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) complete.Predictor {
-	fn := newRefPredictor(cacheStore, bgLauncher)
+func NewRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory BackendFactory) complete.Predictor {
+	fn := newRefPredictor(cacheStore, bgLauncher, factory)
 	return complete.PredictFunc(func(a complete.Args) []string {
 		return fn(a.Last)
 	})
@@ -22,8 +23,8 @@ func NewRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) complete.Pre
 
 // NewPrefixPredictor は prefix-style 補完（ps:/prefix, psa:/prefix）の
 // complete.Predictor を返す。main.go から kongplete.WithPredictor に渡す用途。
-func NewPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) complete.Predictor {
-	fn := newPrefixPredictor(cacheStore, bgLauncher)
+func NewPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory BackendFactory) complete.Predictor {
+	fn := newPrefixPredictor(cacheStore, bgLauncher, factory)
 	return complete.PredictFunc(func(a complete.Args) []string {
 		return fn(a.Last)
 	})
@@ -56,7 +57,7 @@ func hierarchicalFilter(refPath string, entries []cache.CacheEntry, refTypeStr s
 	}
 
 	seen := make(map[string]struct{})
-	var candidates []string
+	candidates := make([]string, 0)
 	for _, e := range entries {
 		if refPath != "" && !strings.HasPrefix(e.Path, refPath) {
 			continue
@@ -78,7 +79,7 @@ func hierarchicalFilter(refPath string, entries []cache.CacheEntry, refTypeStr s
 }
 
 // newRefPredictor は ref-style 補完の内部関数（テスト用に cmd パッケージ内でアクセス可能）。
-func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string) []string {
+func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory BackendFactory) func(string) []string {
 	return func(prefix string) []string {
 		// 1. prefix からバックエンドタイプを判定
 		ref, err := backend.ParseRef(prefix)
@@ -92,9 +93,10 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string)
 		// 2. キャッシュを読む
 		entries, err := cacheStore.Read(backendType)
 		if err == cache.ErrCacheNotFound {
-			// キャッシュなし（初回）→ 次回補完のために BG でキャッシュ作成
+			// キャッシュなし → BG でキャッシュ作成 + リアルタイム API で候補を返す
 			_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
-			return []string{}
+			liveEntries := fetchLive(factory, backendType, ref.Path)
+			return hierarchicalFilter(ref.Path, liveEntries, string(ref.Type))
 		} else if err != nil {
 			// ErrCacheNotFound 以外のエラー → stderr ログ、空リスト返す
 			fmt.Fprintf(os.Stderr, "cache read error for %s: %v\n", backendType, err)
@@ -116,7 +118,7 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string)
 }
 
 // newPrefixPredictor は prefix-style 補完の内部関数（テスト用に cmd パッケージ内でアクセス可能）。
-func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string) []string {
+func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory BackendFactory) func(string) []string {
 	return func(prefix string) []string {
 		// 空文字（全バックエンド）の場合は ps:/psa:/sm: 全パスを返す
 		if prefix == "" {
@@ -127,6 +129,13 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 				entries, err := cacheStore.Read(backendType)
 				if err == cache.ErrCacheNotFound {
 					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", refreshArg)
+					// sm は空パス、ps/psa は "/" でリアルタイム取得
+					var livePath string
+					if backendType != "sm" {
+						livePath = "/"
+					}
+					liveEntries := fetchLive(factory, backendType, livePath)
+					candidates = append(candidates, hierarchicalFilter("", liveEntries, backendType)...)
 					continue
 				} else if err != nil {
 					fmt.Fprintf(os.Stderr, "cache read error for %s: %v\n", backendType, err)
@@ -154,9 +163,10 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 
 		entries, err := cacheStore.Read(backendType)
 		if err == cache.ErrCacheNotFound {
-			// キャッシュなし（初回）→ 次回補完のために BG でキャッシュ作成
+			// キャッシュなし → BG でキャッシュ作成 + リアルタイム API で候補を返す
 			_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
-			return []string{}
+			liveEntries := fetchLive(factory, backendType, ref.Path)
+			return hierarchicalFilter(ref.Path, liveEntries, string(ref.Type))
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "cache read error for %s: %v\n", backendType, err)
 			return []string{}
@@ -171,4 +181,33 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 
 		return candidates
 	}
+}
+
+// fetchLive は AWS API を直接呼んでパス一覧を取得する（タグ取得なし）。
+// エラー時は nil を返す。factory が nil の場合も nil を返す。
+func fetchLive(factory BackendFactory, backendType, prefix string) []cache.CacheEntry {
+	if factory == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	b, err := factory(backend.BackendType(backendType))
+	if err != nil {
+		return nil
+	}
+
+	entries, err := b.GetByPrefix(ctx, prefix, backend.GetByPrefixOptions{
+		Recursive:    true,
+		SkipTagFetch: true,
+	})
+	if err != nil {
+		return nil
+	}
+
+	result := make([]cache.CacheEntry, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, cache.CacheEntry{Path: e.Path})
+	}
+	return result
 }

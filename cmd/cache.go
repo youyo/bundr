@@ -51,7 +51,8 @@ func (c *CacheRefreshCmd) Run(appCtx *Context) error {
 	}
 
 	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{
-		Recursive: true,
+		Recursive:    true,
+		SkipTagFetch: true,
 	})
 	if err != nil {
 		return fmt.Errorf("cache refresh: fetch parameters: %w", err)

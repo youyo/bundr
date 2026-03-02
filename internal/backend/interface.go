@@ -19,7 +19,8 @@ type GetOptions struct {
 
 // GetByPrefixOptions contains options for the GetByPrefix operation.
 type GetByPrefixOptions struct {
-	Recursive bool
+	Recursive    bool
+	SkipTagFetch bool // タグ取得スキップ（補完・cache refresh 専用）。StoreMode = ""
 }
 
 // ParameterEntry represents a single parameter retrieved by GetByPrefix.

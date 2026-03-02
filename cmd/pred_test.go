@@ -45,7 +45,7 @@ func TestNewRefPredictor_CacheHitBGRefresh(t *testing.T) {
 	}
 
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	candidates := fn("ps:/app")
 
 	// 階層フィルタリング: /app/prod/DB_HOST と /app/prod/DB_PORT は ps:/app/prod/ に統合
@@ -61,18 +61,15 @@ func TestNewRefPredictor_CacheHitBGRefresh(t *testing.T) {
 	}
 }
 
-// pred-cmd-002: RefPredictor - ErrCacheNotFound → 空リスト
+// pred-cmd-002: RefPredictor - ErrCacheNotFound、factory=nil → 空リスト
 func TestNewRefPredictor_CacheMiss(t *testing.T) {
 	store := &MockStore{} // ReadFunc なし → ErrCacheNotFound
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil) // factory=nil → fetchLive は nil を返す
 	candidates := fn("ps:/app")
 
-	if candidates == nil {
-		t.Error("expected non-nil slice")
-	}
 	if len(candidates) != 0 {
-		t.Errorf("expected empty slice on cache miss, got %v", candidates)
+		t.Errorf("expected empty slice on cache miss with nil factory, got %v", candidates)
 	}
 }
 
@@ -80,7 +77,7 @@ func TestNewRefPredictor_CacheMiss(t *testing.T) {
 func TestNewRefPredictor_SecretManager(t *testing.T) {
 	store := &MockStore{}
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	candidates := fn("sm:my-secret")
 
 	if len(candidates) != 0 {
@@ -96,7 +93,7 @@ func TestNewRefPredictor_CacheError(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	candidates := fn("ps:/app")
 
 	if len(candidates) != 0 {
@@ -121,7 +118,7 @@ func TestNewRefPredictor_Throttle(t *testing.T) {
 	}
 
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	fn("ps:/app")
 
 	if len(bg.LaunchCalls) != 0 {
@@ -133,7 +130,7 @@ func TestNewRefPredictor_Throttle(t *testing.T) {
 func TestNewRefPredictor_InvalidPrefix(t *testing.T) {
 	store := &MockStore{}
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	candidates := fn("invalid-prefix")
 
 	if len(candidates) != 0 {
@@ -162,7 +159,7 @@ func TestNewPrefixPredictor_EmptyPrefix(t *testing.T) {
 	}
 
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("")
 
 	if len(candidates) == 0 {
@@ -202,7 +199,7 @@ func TestNewPrefixPredictor_EmptyPrefixBGRefresh(t *testing.T) {
 	}
 
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	fn("")
 
 	if len(bg.LaunchCalls) < 3 {
@@ -225,7 +222,7 @@ func TestNewPrefixPredictor_EmptyPrefixPartialCache(t *testing.T) {
 	}
 
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("")
 
 	for _, c := range candidates {
@@ -243,7 +240,7 @@ func TestNewPrefixPredictor_EmptyCacheError(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	// エラー時もパニックせず空リストが返る（nil は空スライスとして扱う）
 	candidates := fn("")
 	if len(candidates) != 0 {
@@ -271,7 +268,7 @@ func TestNewPrefixPredictor_WithPrefix(t *testing.T) {
 	}
 
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("ps:/app")
 
 	for _, c := range candidates {
@@ -295,7 +292,7 @@ func TestNewPrefixPredictor_WithPrefixBGRefresh(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	fn("ps:/app")
 
 	if len(bg.LaunchCalls) == 0 {
@@ -307,7 +304,7 @@ func TestNewPrefixPredictor_WithPrefixBGRefresh(t *testing.T) {
 func TestNewPrefixPredictor_SecretManager(t *testing.T) {
 	store := &MockStore{}
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("sm:my-secret")
 
 	if len(candidates) != 0 {
@@ -319,7 +316,7 @@ func TestNewPrefixPredictor_SecretManager(t *testing.T) {
 func TestNewPrefixPredictor_CacheMiss(t *testing.T) {
 	store := &MockStore{} // ReadFunc なし → ErrCacheNotFound
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("ps:/app")
 
 	if len(candidates) != 0 {
@@ -335,7 +332,7 @@ func TestNewPrefixPredictor_CacheError(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("ps:/app")
 
 	if len(candidates) != 0 {
@@ -347,7 +344,7 @@ func TestNewPrefixPredictor_CacheError(t *testing.T) {
 func TestNewRefPredictor_CacheMiss_LaunchesBG(t *testing.T) {
 	store := &MockStore{} // ReadFunc なし → ErrCacheNotFound
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	candidates := fn("ps:/app")
 
 	if len(candidates) != 0 {
@@ -362,7 +359,7 @@ func TestNewRefPredictor_CacheMiss_LaunchesBG(t *testing.T) {
 func TestNewPrefixPredictor_CacheMiss_LaunchesBG(t *testing.T) {
 	store := &MockStore{} // ReadFunc なし → ErrCacheNotFound
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("ps:/app")
 
 	if len(candidates) != 0 {
@@ -388,7 +385,7 @@ func TestNewPrefixPredictor_EmptyPrefixPartialCache_LaunchesBG(t *testing.T) {
 	}
 
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("")
 
 	// psa の候補のみ返る
@@ -411,7 +408,7 @@ func TestNewPrefixPredictor_EmptyPrefixPartialCache_LaunchesBG(t *testing.T) {
 func TestNewPrefixPredictor_InvalidPrefix(t *testing.T) {
 	store := &MockStore{}
 	bg := &MockBGLauncher{}
-	fn := newPrefixPredictor(store, bg)
+	fn := newPrefixPredictor(store, bg, nil)
 	candidates := fn("invalid-prefix")
 
 	if len(candidates) != 0 {
@@ -430,7 +427,7 @@ func TestNewRefPredictor_AsPredictor(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	predictor := NewRefPredictor(store, bg)
+	predictor := NewRefPredictor(store, bg, nil)
 
 	result := predictor.Predict(complete.Args{Last: "ps:/app"})
 	if result == nil {
@@ -556,7 +553,7 @@ func TestNewRefPredictor_HierarchicalLeaf(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	candidates := fn("ps:/app/prod/")
 
 	if len(candidates) != 2 {
@@ -592,7 +589,7 @@ func TestNewRefPredictor_HierarchicalDirectory(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	fn := newRefPredictor(store, bg)
+	fn := newRefPredictor(store, bg, nil)
 	candidates := fn("ps:/app/")
 
 	if len(candidates) != 2 {
@@ -621,7 +618,7 @@ func TestNewPrefixPredictor_AsPredictor(t *testing.T) {
 		},
 	}
 	bg := &MockBGLauncher{}
-	predictor := NewPrefixPredictor(store, bg)
+	predictor := NewPrefixPredictor(store, bg, nil)
 
 	result := predictor.Predict(complete.Args{Last: ""})
 	if result == nil {

@@ -76,7 +76,7 @@ func TestRefPredictorWithCached(t *testing.T) {
 	}
 
 	bgLauncher := &MockBGLauncher{}
-	predictor := cmd.NewRefPredictor(store, bgLauncher)
+	predictor := cmd.NewRefPredictor(store, bgLauncher, nil)
 
 	candidates := predictor.Predict(complete.Args{Last: "ps:/app"})
 	if candidates == nil {
@@ -99,16 +99,16 @@ func TestRefPredictorWithCached(t *testing.T) {
 	}
 }
 
-// pred-002: キャッシュなし（初回）→ AWS から取得し候補を返す（最小限の実装）
+// pred-002: キャッシュなし（初回）、factory=nil → 空リストを返す
 func TestRefPredictorCacheMiss(t *testing.T) {
 	store := &TestMockStore{} // ReadFunc なし → ErrCacheNotFound 返す
 	bgLauncher := &MockBGLauncher{}
-	predictor := &refPredictor{store: store, bgLauncher: bgLauncher}
+	predictor := &refPredictor{store: store, bgLauncher: bgLauncher} // factory=nil
 
-	// キャッシュなし（ErrCacheNotFound）→ AWS から取得（この実装では空リスト）
+	// factory=nil の場合は fetchLive が nil を返すため空リスト
 	candidates := predictor.Predict(complete.Args{Last: "ps:/app"})
-	if candidates == nil {
-		t.Errorf("expected non-nil candidates even on cache miss")
+	if len(candidates) != 0 {
+		t.Errorf("expected empty candidates with nil factory on cache miss, got %v", candidates)
 	}
 }
 
@@ -188,7 +188,7 @@ func TestPrefixPredictorEmpty(t *testing.T) {
 	}
 
 	bgLauncher := &MockBGLauncher{}
-	predictor := cmd.NewPrefixPredictor(store, bgLauncher)
+	predictor := cmd.NewPrefixPredictor(store, bgLauncher, nil)
 
 	candidates := predictor.Predict(complete.Args{Last: ""})
 	if len(candidates) == 0 {

@@ -1,116 +1,107 @@
-# Plan: `sm:` Tab補完 修正（空パス問題）
+# Plan: SM Tab補完で先頭スラッシュが付くバグ修正
 
 ## Context
 
 ### 問題
-
-- `bundr get sm:` + Tab → 補完候補が出ない（全シークレット一覧が表示されるべき）
-- `bundr get sm:s` + Tab → 補完される（"s" で始まるシークレットが出る）
-- 同様に `ps:` や `psa:` でも（パスなしで） Tab を押した場合も同問題が潜在する
+`bundr get sm:` + Tab → `sm:/stratalog/`（**先頭スラッシュ付き**）が出る（v0.4.10 時点）。
+実際のシークレット: `sm:stratalog/preview/slack-app`（先頭スラッシュなし）。
 
 ### 根本原因
+`cmd/predictor.go` の `hierarchicalFilter` 関数（68-78行目）で `refPath == ""` のとき
+`parentPath = "/"` と固定している。
 
-`backend.ParseRef("sm:")` が `"invalid ref "sm:": path is empty"` エラーを返す。
+**PS/PSA（正しい）:**
+- エントリ: `/app/prod/KEY`（先頭 "/" あり）
+- `TrimPrefix("/app/prod/KEY", "/")` → `"app/prod/KEY"`
+- candidate = `"ps:" + "/" + "app/"` = `"ps:/app/"` ✓
 
-`newRefPredictor` / `newPrefixPredictor` は ParseRef エラー時に即 `[]string{}` を返す設計のため、`sm:` 入力時は一切の補完処理が走らない。
+**SM（バグ）:**
+- エントリ: `stratalog/preview/slack-app`（先頭 "/" なし）
+- `TrimPrefix("stratalog/preview/slack-app", "/")` → 変わらない
+- candidate = `"sm:" + "/" + "stratalog/"` = `"sm:/stratalog/"` ✗ ← バグ
 
-`sm:s` が動く理由：`ParseRef("sm:s")` → `Ref{Type:"sm", Path:"s"}` として成功する。
-
-| 入力 | ParseRef 結果 | 補完 |
-|---|---|---|
-| `sm:` | エラー（path空） | ✗ 出ない ← バグ |
-| `sm:s` | OK (Path="s") | ✓ 出る |
-| `ps:/` | OK (Path="/") | ✓ 出る |
-| `ps:` | エラー（path空） | ✗ 出ない（同問題） |
-
-`hierarchicalFilter("", entries, "sm")` 自体は正しく動く（TestHierarchicalFilter_SMBackend で確認済み）。問題は ParseRef のゲートで弾かれること。
+### テストギャップ
+`TestHierarchicalFilter_SMBackend` は `{Path: "my-secret"}` のような "/" なしパスのみで、
+`stratalog/preview/slack-app` のような "/" 含む SM パスがテストされていなかった。
 
 ---
 
-## 変更内容
+## 変更内容（作業単位: 1件）
 
 ### 変更ファイル
-
-- `cmd/predictor.go`（修正）
-- `cmd/pred_test.go`（テスト追加）
+- `cmd/predictor.go`（修正：条件分岐1つ）
+- `cmd/pred_test.go`（テスト追加：2件）
 
 ### 変更詳細
 
-#### 1. `newRefPredictor` の ParseRef エラーハンドリング拡張
+#### 1. `hierarchicalFilter` の parentPath 計算修正
 
-`ref, err := backend.ParseRef(prefix)` の直後、`if err != nil` ブロックを拡張：
-
+**Before（68-71行目）:**
 ```go
-if err != nil {
-    // "sm:", "ps:", "psa:" — パスなしのバックエンドプレフィックス
-    // ParseRef は空パスを拒否するため、補完時は特別扱いする
-    if prefix == "sm:" || prefix == "ps:" || prefix == "psa:" {
-        btStr := strings.TrimSuffix(prefix, ":")
-        bgArg := makeBGArg(btStr)
-        entries, readErr := cacheStore.Read(btStr)
-        if readErr == cache.ErrCacheNotFound {
-            _ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
-            var livePath string
-            if btStr != "sm" {
-                livePath = "/"
-            }
-            liveEntries := fetchLive(factory, btStr, livePath)
-            return hierarchicalFilter("", liveEntries, btStr)
-        } else if readErr == nil {
-            candidates := hierarchicalFilter("", entries, btStr)
-            lastRefresh := cacheStore.LastRefreshedAt(btStr)
-            if time.Since(lastRefresh) > 10*time.Second {
-                _ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
-            }
-            return candidates
-        }
-    }
-    return []string{}
+var parentPath string
+if refPath == "" || refPath == "/" {
+    parentPath = "/"
 }
 ```
 
-#### 2. `newPrefixPredictor` の同様修正
+**After:**
+```go
+var parentPath string
+if refPath == "/" {
+    parentPath = "/"
+} else if refPath == "" {
+    // SM パスは先頭スラッシュなし（"stratalog/key"）→ parentPath = ""
+    // PS/PSA パスは先頭スラッシュあり（"/app/key"）→ parentPath = "/"
+    if refTypeStr != "sm" {
+        parentPath = "/"
+    }
+    // sm の場合は "" のまま（Go zero value）
+}
+```
 
-`prefix != ""` のパスで同じ修正を適用（`bundr exec --from sm:` のケース対応）。
+修正後の SM 計算:
+- `parentPath = ""`
+- `relative = "stratalog/preview/slack-app"`（変化なし）
+- candidate = `"sm:" + "" + "stratalog/"` = `"sm:stratalog/"` ✓
 
-#### 3. テスト追加（`cmd/pred_test.go`）
+#### 2. テスト追加
 
-- `TestNewRefPredictor_SMColon_CacheHit`：`sm:` + キャッシュあり → シークレット一覧返す
-- `TestNewRefPredictor_SMColon_CacheMiss_NilFactory`：`sm:` + キャッシュなし + factory=nil → 空リスト
-- `TestNewRefPredictor_SMColon_CacheMiss_WithFactory`：`sm:` + キャッシュなし + factory → 全シークレット返す
-- `TestNewRefPredictor_PSColon_CacheHit`：`ps:` + キャッシュあり → `ps:/` 始まる候補
-- `TestNewPrefixPredictor_SMColon_CacheHit`：PrefixPredictor 版
+**`TestHierarchicalFilter_SMHierarchical`**: SM の "/" 含むシークレット名でのフィルタリング
+```go
+entries := []cache.CacheEntry{
+    {Path: "stratalog/preview/slack-app"},
+    {Path: "stratalog/workspace/T02DD82CE"},
+}
+candidates := hierarchicalFilter("", entries, "sm")
+// expected: ["sm:stratalog/"] （重複排除）
+```
+
+**`TestHierarchicalFilter_SMHierarchical_DeepPath`**: SM の深いパスでのフィルタリング
+```go
+candidates := hierarchicalFilter("stratalog/", entries, "sm")
+// expected: ["sm:stratalog/preview/", "sm:stratalog/workspace/"]
+```
 
 ---
 
 ## 変更規模
-
-- `cmd/predictor.go`: +20行（`newRefPredictor` と `newPrefixPredictor` 各+10行）
-- `cmd/pred_test.go`: +80〜100行（テスト5件）
+- `cmd/predictor.go`: +4行（条件分岐の分割）
+- `cmd/pred_test.go`: +45行（テスト2件）
 
 ---
 
 ## 検証方法
 
-### ユニットテスト
-
 ```bash
-go test ./cmd/... -v -run "TestNewRefPredictor_SM|TestNewRefPredictor_PS|TestNewPrefixPredictor_SM"
+# ユニットテスト
+go test ./cmd/... -v -run "TestHierarchicalFilter_SM"
 go test ./...
 ```
 
-### E2E 確認
-
+E2E（AWS 認証必要）:
 ```bash
 go build -o bundr .
-
-# sm: でのタブ補完エミュレーション（キャッシュあり環境）
-COMP_LINE="bundr get sm:" COMP_POINT=13 bundr get sm:
-# 期待: sm:secret-name-1 等が出力される
-
-# sm:s でも引き続き動作
-COMP_LINE="bundr get sm:s" COMP_POINT=14 bundr get sm:s
-# 期待: sm:s で始まるシークレット名が出力される
+bundr cache refresh sm:
+COMP_LINE="bundr get sm:" COMP_POINT=13 ./bundr get sm:
+# 期待: sm:stratalog/ 等（先頭スラッシュなし）
 ```
-
-注意: E2E テストは AWS 認証が必要。ユニットテストで MockBackend を使って同等の検証が可能。

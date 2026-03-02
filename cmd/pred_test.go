@@ -521,6 +521,43 @@ func TestHierarchicalFilter_SMBackend(t *testing.T) {
 	}
 }
 
+// TestHierarchicalFilter_SMHierarchical: SM の "/" 含むシークレット名でのフィルタリング（先頭スラッシュなし）
+func TestHierarchicalFilter_SMHierarchical(t *testing.T) {
+	entries := []cache.CacheEntry{
+		{Path: "stratalog/preview/slack-app"},
+		{Path: "stratalog/workspace/T02DD82CE"},
+	}
+	candidates := hierarchicalFilter("", entries, "sm")
+	if len(candidates) != 1 {
+		t.Errorf("expected 1 candidate (sm:stratalog/), got %d: %v", len(candidates), candidates)
+	}
+	if len(candidates) == 1 && candidates[0] != "sm:stratalog/" {
+		t.Errorf("expected sm:stratalog/, got %s", candidates[0])
+	}
+}
+
+// TestHierarchicalFilter_SMHierarchical_DeepPath: SM の深いパスでのフィルタリング
+func TestHierarchicalFilter_SMHierarchical_DeepPath(t *testing.T) {
+	entries := []cache.CacheEntry{
+		{Path: "stratalog/preview/slack-app"},
+		{Path: "stratalog/workspace/T02DD82CE"},
+	}
+	candidates := hierarchicalFilter("stratalog/", entries, "sm")
+	if len(candidates) != 2 {
+		t.Errorf("expected 2 candidates, got %d: %v", len(candidates), candidates)
+	}
+	found := make(map[string]bool)
+	for _, c := range candidates {
+		found[c] = true
+	}
+	if !found["sm:stratalog/preview/"] {
+		t.Errorf("expected sm:stratalog/preview/ in %v", candidates)
+	}
+	if !found["sm:stratalog/workspace/"] {
+		t.Errorf("expected sm:stratalog/workspace/ in %v", candidates)
+	}
+}
+
 // TestHierarchicalFilter_Deduplication: 同じ中間ノードは重複排除される
 func TestHierarchicalFilter_Deduplication(t *testing.T) {
 	entries := []cache.CacheEntry{

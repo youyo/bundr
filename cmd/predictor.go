@@ -65,8 +65,15 @@ func makeBGArg(backendType string) string {
 // 重複は排除する。
 func hierarchicalFilter(refPath string, entries []cache.CacheEntry, refTypeStr string) []string {
 	var parentPath string
-	if refPath == "" || refPath == "/" {
+	if refPath == "/" {
 		parentPath = "/"
+	} else if refPath == "" {
+		// SM パスは先頭スラッシュなし（"stratalog/key"）→ parentPath = ""
+		// PS/PSA パスは先頭スラッシュあり（"/app/key"）→ parentPath = "/"
+		if refTypeStr != "sm" {
+			parentPath = "/"
+		}
+		// sm の場合は "" のまま（Go zero value）
 	} else if strings.HasSuffix(refPath, "/") {
 		parentPath = refPath
 	} else {

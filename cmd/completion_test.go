@@ -13,16 +13,16 @@ func TestCompletionCmd(t *testing.T) {
 		want  string // 出力に含まれるべき文字列
 	}{
 		{
-			// C-01: bash → "complete -o nospace -C" を含む補完スクリプト
+			// C-01: bash → "_bundr_complete" ラッパー関数と "COMP_POINT=${#COMP_LINE}" を含む補完スクリプト
 			id:    "C-01",
 			shell: "bash",
-			want:  "complete -o nospace -C",
+			want:  "_bundr_complete",
 		},
 		{
-			// C-02: zsh → "bashcompinit" を含む補完スクリプト
+			// C-02: zsh → "bashcompinit" と "_bundr_complete" ラッパー関数を含む補完スクリプト
 			id:    "C-02",
 			shell: "zsh",
-			want:  "bashcompinit",
+			want:  "_bundr_complete",
 		},
 		{
 			// C-03: fish → "__complete_bundr" を含む補完スクリプト

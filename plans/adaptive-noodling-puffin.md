@@ -1,92 +1,95 @@
-# Plan: SM Tab補完で先頭スラッシュが付くバグ修正
+# Plan: Tab補完候補が消えない問題の修正（COMP_POINT 切り捨て）
 
 ## Context
 
 ### 問題
-`bundr get sm:` + Tab → `sm:/stratalog/`（**先頭スラッシュ付き**）が出る（v0.4.10 時点）。
-実際のシークレット: `sm:stratalog/preview/slack-app`（先頭スラッシュなし）。
+`bundr get sm:stratalog/preview/slack-app` と完全入力して Tab を押しても、
+`sm:stratalog/preview/` と `sm:stratalog/workspace/` という中間ディレクトリが候補として消えない。
 
-### 根本原因
-`cmd/predictor.go` の `hierarchicalFilter` 関数（68-78行目）で `refPath == ""` のとき
-`parentPath = "/"` と固定している。
+### 根本原因の調査結果
 
-**PS/PSA（正しい）:**
-- エントリ: `/app/prod/KEY`（先頭 "/" あり）
-- `TrimPrefix("/app/prod/KEY", "/")` → `"app/prod/KEY"`
-- candidate = `"ps:" + "/" + "app/"` = `"ps:/app/"` ✓
+#### posener/complete の動作（`complete.go:62-64`）
+```go
+if point >= 0 && point < len(line) {
+    line = line[:point]   // ← COMP_POINT 位置で COMP_LINE を切り取る
+}
+a := newArgs(line)         // スペース分割で a.Last を決定
+```
 
-**SM（バグ）:**
-- エントリ: `stratalog/preview/slack-app`（先頭 "/" なし）
-- `TrimPrefix("stratalog/preview/slack-app", "/")` → 変わらない
-- candidate = `"sm:" + "/" + "stratalog/"` = `"sm:/stratalog/"` ✗ ← バグ
+#### zsh の bashcompinit + complete -C の問題
+zsh は `bashcompinit` 経由で bash の `complete -C` をエミュレートするとき、
+**`COMP_POINT` を末尾スラッシュの後の位置に設定する**ことがある。
 
-### テストギャップ
-`TestHierarchicalFilter_SMBackend` は `{Path: "my-secret"}` のような "/" なしパスのみで、
-`stratalog/preview/slack-app` のような "/" 含む SM パスがテストされていなかった。
+`sm:stratalog/preview/slack-app` を入力した場合：
+- 実際の `COMP_POINT` = `"bundr get sm:stratalog/"` の長さ（= 23）← 末尾スラッシュで切れる
+- `COMP_LINE[:23]` = `"bundr get sm:stratalog/"`
+- `a.Last = "sm:stratalog/"`
+
+この `a.Last` が predictor に渡され:
+1. `ParseRef("sm:stratalog/")` → `{Type: "sm", Path: "stratalog/"}`
+2. `hierarchicalFilter("stratalog/", entries, "sm")` → `["sm:stratalog/preview/", "sm:stratalog/workspace/"]`
+3. フィルタ: `HasPrefix("sm:stratalog/preview/", "sm:stratalog/")` = **true** → 両方通過
+
+#### 検証コマンド（e2e 根拠）
+```bash
+# 旧動作の再現（COMP_POINT = 23 で末尾スラッシュ切り）
+COMP_LINE="bundr get sm:stratalog/preview/slack-app" COMP_POINT=23 ./bundr get sm:stratalog/preview/slack-app
+# → sm:stratalog/preview/  sm:stratalog/workspace/  ← バグ
+
+# 期待動作（COMP_POINT = 末尾）
+COMP_LINE="bundr get sm:stratalog/preview/slack-app" COMP_POINT=40 ./bundr get sm:stratalog/preview/slack-app
+# → sm:stratalog/preview/slack-app  ← 正しい
+```
 
 ---
 
 ## 変更内容（作業単位: 1件）
 
 ### 変更ファイル
-- `cmd/predictor.go`（修正：条件分岐1つ）
-- `cmd/pred_test.go`（テスト追加：2件）
+- `cmd/completion.go`（修正：bash/zsh スクリプト生成の修正）
+- `cmd/completion_test.go`（テスト更新）
 
 ### 変更詳細
 
-#### 1. `hierarchicalFilter` の parentPath 計算修正
+#### `cmd/completion.go` の bash/zsh スクリプト修正
 
-**Before（68-71行目）:**
-```go
-var parentPath string
-if refPath == "" || refPath == "/" {
-    parentPath = "/"
-}
+`COMP_POINT` を `${#COMP_LINE}` に強制設定するラッパー関数を補完スクリプトに追加。
+
+**Before（bash）:**
+```
+complete -o nospace -C /path/to/bundr bundr
 ```
 
-**After:**
-```go
-var parentPath string
-if refPath == "/" {
-    parentPath = "/"
-} else if refPath == "" {
-    // SM パスは先頭スラッシュなし（"stratalog/key"）→ parentPath = ""
-    // PS/PSA パスは先頭スラッシュあり（"/app/key"）→ parentPath = "/"
-    if refTypeStr != "sm" {
-        parentPath = "/"
-    }
-    // sm の場合は "" のまま（Go zero value）
-}
+**After（bash）:**
+```
+_bundr_complete() { COMP_POINT=${#COMP_LINE} /path/to/bundr "$@"; }
+complete -o nospace -C _bundr_complete bundr
 ```
 
-修正後の SM 計算:
-- `parentPath = ""`
-- `relative = "stratalog/preview/slack-app"`（変化なし）
-- candidate = `"sm:" + "" + "stratalog/"` = `"sm:stratalog/"` ✓
-
-#### 2. テスト追加
-
-**`TestHierarchicalFilter_SMHierarchical`**: SM の "/" 含むシークレット名でのフィルタリング
-```go
-entries := []cache.CacheEntry{
-    {Path: "stratalog/preview/slack-app"},
-    {Path: "stratalog/workspace/T02DD82CE"},
-}
-candidates := hierarchicalFilter("", entries, "sm")
-// expected: ["sm:stratalog/"] （重複排除）
+**Before（zsh）:**
+```
+autoload -U +X bashcompinit && bashcompinit
+complete -o nospace -C /path/to/bundr bundr
 ```
 
-**`TestHierarchicalFilter_SMHierarchical_DeepPath`**: SM の深いパスでのフィルタリング
-```go
-candidates := hierarchicalFilter("stratalog/", entries, "sm")
-// expected: ["sm:stratalog/preview/", "sm:stratalog/workspace/"]
+**After（zsh）:**
 ```
+autoload -U +X bashcompinit && bashcompinit
+_bundr_complete() { COMP_POINT=${#COMP_LINE} /path/to/bundr "$@"; }
+complete -o nospace -C _bundr_complete bundr
+```
+
+**Fish（変更なし）**: fish は `COMP_LINE` / `COMP_POINT` の仕組みが異なるため対象外。
+
+#### `cmd/completion_test.go` の更新
+
+スクリプト内容の期待値テストを更新する（`_bundr_complete` 関数が含まれることを確認）。
 
 ---
 
 ## 変更規模
-- `cmd/predictor.go`: +4行（条件分岐の分割）
-- `cmd/pred_test.go`: +45行（テスト2件）
+- `cmd/completion.go`: +1行（各ケースに `_bundr_complete` 関数1行追加）
+- `cmd/completion_test.go`: 期待値文字列の更新
 
 ---
 
@@ -94,14 +97,22 @@ candidates := hierarchicalFilter("stratalog/", entries, "sm")
 
 ```bash
 # ユニットテスト
-go test ./cmd/... -v -run "TestHierarchicalFilter_SM"
+go test ./cmd/... -v -run "TestCompletionCmd"
 go test ./...
-```
 
-E2E（AWS 認証必要）:
-```bash
+# e2e（ビルド後）
 go build -o bundr .
-bundr cache refresh sm:
-COMP_LINE="bundr get sm:" COMP_POINT=13 ./bundr get sm:
-# 期待: sm:stratalog/ 等（先頭スラッシュなし）
+
+# 旧問題の再現確認（COMP_POINT=23 でスラッシュ切り）
+COMP_LINE="bundr get sm:stratalog/preview/slack-app" COMP_POINT=23 ./bundr get sm:stratalog/preview/slack-app
+# 現在は sm:stratalog/preview/ と sm:stratalog/workspace/ が出る（バグ再現）
+
+# 修正後の動作確認（COMP_POINT=末尾）
+COMP_LINE="bundr get sm:stratalog/preview/slack-app" COMP_POINT=40 ./bundr get sm:stratalog/preview/slack-app
+# 期待: sm:stratalog/preview/slack-app のみ
+
+# 実際のシェル補完（zsh で eval 後）
+eval "$(./bundr completion zsh)"
+bundr get sm:stratalog/preview/slack-app<Tab>
+# 期待: sm:stratalog/preview/slack-app のみ（候補が消える）
 ```

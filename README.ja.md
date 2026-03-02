@@ -49,6 +49,9 @@ go install github.com/youyo/bundr@latest
 # 1. 値を保存
 bundr put ps:/myapp/db_host --value localhost --store raw
 
+# 機密値を SecureString として保存
+bundr put ps:/myapp/api_key --value s3cr3t --store raw --secure
+
 # 2. 値を取得
 bundr get ps:/myapp/db_host
 
@@ -77,13 +80,14 @@ bundr exec --from ps:/myapp/ -- node app.js
 値を保存する。
 
 ```bash
-bundr put <ref> --value <string> --store raw|json [--region <region>] [--profile <profile>]
+bundr put <ref> --value <string> --store raw|json [--secure] [--region <region>] [--profile <profile>]
 ```
 
 | オプション | 説明 |
 |----------|------|
 | `--value` | 保存する値 |
 | `--store` | ストレージモード（`raw` または `json`）|
+| `--secure` | SSM SecureString タイプを使用（SSM Parameter Store のみ）|
 | `--kms-key-id` | KMS キー ID または ARN |
 
 ```bash
@@ -92,6 +96,9 @@ bundr put ps:/app/db_host --value localhost --store raw
 
 # JSON スカラーとして保存
 bundr put ps:/app/db_port --value 5432 --store json
+
+# SecureString として保存
+bundr put ps:/app/api_key --value s3cr3t --store raw --secure
 ```
 
 ### bundr get
@@ -112,7 +119,7 @@ bundr get ps:/app/db_port --raw
 プレフィックス配下のパラメータを環境変数形式で出力する。
 
 ```bash
-bundr export <prefix> --format shell|dotenv|direnv [--recursive]
+bundr export <prefix> --format shell|dotenv|direnv [--recursive] [--no-flatten] [--array-mode join|index|json]
 ```
 
 | フォーマット | 出力形式 |
@@ -120,6 +127,16 @@ bundr export <prefix> --format shell|dotenv|direnv [--recursive]
 | `shell` | `export KEY=value` |
 | `dotenv` | `KEY=value` |
 | `direnv` | `export KEY=value` |
+
+| フラグ | デフォルト | 説明 |
+|------|---------|------|
+| `--format` | | 出力フォーマット（必須）|
+| `--recursive` | false | サブディレクトリを再帰的に展開 |
+| `--upper` | true | 変数名を大文字化 |
+| `--flatten-delim` | `_` | フラット化キーの区切り文字 |
+| `--no-flatten` | false | JSON キーのフラット化を無効化 |
+| `--array-mode` | `join` | 配列処理モード（join/index/json）|
+| `--array-join-delim` | `,` | join モードの区切り文字 |
 
 ```bash
 # シェルに export
@@ -177,6 +194,8 @@ bundr jsonize --frompath <prefix|ref> [--frompath <prefix|ref>]... [--to <ref>] 
 |----------|------|
 | `--frompath` | 読み込み元の SSM プレフィックスまたはリーフ ref（複数指定可）|
 | `--to` | 保存先の ref（省略時は stdout に出力）|
+| `--store` | 保存先のストレージモード（raw/json、デフォルト: json。`--to` 必須）|
+| `--value-type` | 保存先の値タイプ（string/secure、デフォルト: string。`--to` 必須）|
 | `--force` | 保存先が既に存在する場合に上書き（`--to` と合わせて使用）|
 | `--compact` | インデントなしのコンパクト JSON で出力 |
 
@@ -232,6 +251,112 @@ bundr get ps:/app/prod/<TAB>   # ps:/app/prod/DB_HOST  ps:/app/prod/DB_PORT
 bundr cache refresh                 # 全バックエンドを更新
 bundr cache refresh ps:/app/        # 特定の Parameter Store プレフィックスを更新
 bundr cache refresh sm:             # Secrets Manager の全シークレットを更新
+bundr cache clear                   # ローカルキャッシュを完全に削除
+```
+
+## レシピ
+
+### SecureString で機密パラメータを保存
+
+SSM Parameter Store の SecureString タイプを使用してパラメータを暗号化保存する:
+
+```bash
+bundr put ps:/app/api_key --value s3cr3t --store raw --secure
+bundr put ps:/app/db_pass --value MyP@ss --store raw --secure
+```
+
+### GitHub Actions でのシークレット注入
+
+```yaml
+- name: AWS パラメータを注入してデプロイ
+  run: bundr exec --from ps:/myapp/prod/ -- ./deploy.sh
+  env:
+    AWS_REGION: ap-northeast-1
+```
+
+### JSON フラット化と jsonize による往復変換
+
+```bash
+# 個別パラメータを書き込む
+bundr put ps:/app/db_host --value localhost --store raw
+bundr put ps:/app/db_port --value 5432 --store json
+
+# Secrets Manager に JSON オブジェクトとしてまとめて保存
+bundr jsonize --frompath ps:/app/ --to sm:myapp-config
+
+# JSON を読み戻す
+bundr get sm:myapp-config
+```
+
+### 配列処理モードの比較
+
+JSON 値が配列の場合、`--array-mode` で出力形式を制御できる:
+
+| モード | 入力 | 出力 |
+|------|-----|------|
+| `join`（デフォルト）| `["a","b","c"]` | `ITEMS=a,b,c` |
+| `index` | `["a","b","c"]` | `ITEMS_0=a`, `ITEMS_1=b`, `ITEMS_2=c` |
+| `json` | `["a","b","c"]` | `ITEMS=["a","b","c"]` |
+
+```bash
+# join モード（デフォルト）
+bundr export ps:/app/ --format shell --array-mode join
+
+# index モード
+bundr export ps:/app/ --format shell --array-mode index
+
+# json モード（配列を JSON のままで出力）
+bundr export ps:/app/ --format shell --array-mode json
+```
+
+### キャッシュのリセット
+
+補完キャッシュを完全にリセットする手順:
+
+```bash
+bundr cache clear          # キャッシュを削除
+bundr cache refresh ps:/   # Parameter Store を再取得
+bundr cache refresh sm:    # Secrets Manager を再取得
+```
+
+### 複数プレフィックスのマージ
+
+`exec` コマンドは複数の `--from` を受け付け、後のプレフィックスが優先される:
+
+```bash
+# 共通設定 + 環境固有設定（後者が優先）
+bundr exec --from ps:/common/ --from ps:/app/prod/ -- python main.py
+```
+
+## 詳細トピック
+
+### JSON フラット化
+
+`store-mode=json` で保存した JSON 値は、エクスポート時に区切り文字（デフォルト `_`）でキーをフラット化する。
+
+```bash
+# 例: ps:/app/server に '{"host":"0.0.0.0","port":8080}' が json モードで保存されている場合
+bundr export ps:/app/ --format shell
+# export DB_HOST=localhost
+# export SERVER_HOST=0.0.0.0
+# export SERVER_PORT=8080
+```
+
+`--no-flatten` で無効化:
+
+```bash
+bundr export ps:/app/ --format shell --no-flatten
+# export SERVER={"host":"0.0.0.0","port":8080}
+```
+
+### Tab 補完の既知制限
+
+- ローカルビルド（`./bundr`）では補完が発火しない。`$PATH` に `bundr` として配置する必要がある
+- aws-vault や AWS SSO などの短期クレデンシャルは補完プロセスに引き継がれないことがある。クレデンシャルが有効な間に事前キャッシュを作成しておくことを推奨:
+
+```bash
+bundr cache refresh ps:/
+bundr cache refresh sm:
 ```
 
 ## グローバルフラグ
@@ -304,19 +429,6 @@ AWS_PROFILE=my-profile bundr ls ps:/app/
 # 設定ファイルで指定（.bundr.toml）
 # [aws]
 # profile = "my-profile"
-```
-
-## シェル補完
-
-```bash
-# Zsh（~/.zshrc に追加）
-eval "$(bundr completion zsh)"
-
-# Bash（~/.bashrc に追加）
-eval "$(bundr completion bash)"
-
-# Fish（~/.config/fish/config.fish に追加）
-bundr completion fish | source
 ```
 
 ## タグスキーマ

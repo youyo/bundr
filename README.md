@@ -68,6 +68,9 @@ eval "$(bundr export ps:/myapp/ --format shell)"
 
 # 5. Run a command with parameters injected
 bundr exec --from ps:/myapp/ -- node app.js
+
+# Store a sensitive value as SecureString
+bundr put ps:/myapp/api_key --value s3cr3t --store raw --secure
 ```
 
 ## Ref syntax
@@ -105,6 +108,12 @@ Encrypt with a specific KMS key:
 
 ```bash
 bundr put psa:/app/token --value s3cr3t --store raw --kms-key-id alias/my-key
+```
+
+Store a sensitive value as SSM SecureString:
+
+```bash
+bundr put ps:/app/api_key --value s3cr3t --store raw --secure
 ```
 
 ### get
@@ -199,6 +208,16 @@ Inspect what gets injected:
 bundr exec --from ps:/app/ -- env | grep DB
 ```
 
+Use in a GitHub Actions workflow:
+
+```yaml
+- name: Run with AWS parameters
+  run: bundr exec --from ps:/myapp/prod/ -- ./deploy.sh
+  env:
+    AWS_REGION: ap-northeast-1
+    AWS_ROLE_ARN: arn:aws:iam::123456789012:role/MyRole
+```
+
 ### jsonize
 
 Reads parameters under one or more prefixes and outputs them as a single JSON object to stdout:
@@ -235,6 +254,20 @@ Compact output (no indentation):
 
 ```bash
 bundr jsonize --frompath ps:/app/ --compact
+```
+
+Store individual SSM parameters, then restore as JSON (round-trip):
+
+```bash
+# Write individual parameters
+bundr put ps:/app/db_host --value localhost --store raw
+bundr put ps:/app/db_port --value 5432 --store json
+
+# Combine into a JSON object in Secrets Manager
+bundr jsonize --frompath ps:/app/ --to sm:myapp-config
+
+# Read the JSON back
+bundr get sm:myapp-config
 ```
 
 ### completion
@@ -280,6 +313,18 @@ bundr cache refresh ps:/app/         # refresh a specific Parameter Store prefix
 bundr cache refresh sm:              # refresh all Secrets Manager secrets
 ```
 
+Clear the local cache completely:
+
+```bash
+bundr cache clear
+```
+
+Full cache reset workflow:
+
+```bash
+bundr cache clear && bundr cache refresh ps:/
+```
+
 ## Command reference
 
 ### Global flags
@@ -301,6 +346,7 @@ bundr put <ref> --value <string> --store raw|json [flags]
 | `--value` | Yes | Value to store |
 | `--store` | Yes | `raw` stores as-is; `json` encodes scalars as JSON |
 | `--kms-key-id` | No | KMS key ID or ARN for encryption |
+| `--secure` | No | Use SecureString type (SSM Parameter Store only) |
 
 ### bundr get
 
@@ -331,6 +377,9 @@ bundr export <prefix> --format shell|dotenv|direnv [flags]
 | `--recursive` | false | List recursively (include all nested paths) |
 | `--upper` | true | Uppercase variable names |
 | `--flatten-delim` | `_` | Delimiter for flattened keys |
+| `--no-flatten` | false | Disable JSON key flattening |
+| `--array-mode` | `join` | Array handling: `join`, `index`, or `json` |
+| `--array-join-delim` | `,` | Delimiter for `join` mode |
 
 ### bundr ls
 
@@ -367,6 +416,8 @@ Outputs JSON to stdout by default. Use `--to` to save to a parameter or secret.
 |------|-------------|
 | `--frompath` | SSM prefix or leaf ref to read from; may be repeated |
 | `--to` | Save output to this ref instead of stdout |
+| `--store` | Storage mode for target: `raw` or `json` (default: `json`; requires `--to`) |
+| `--value-type` | Value type for target: `string` or `secure` (default: `string`; requires `--to`) |
 | `--force` | Overwrite if the target already exists (requires `--to`) |
 | `--compact` | Compact JSON output (no indentation) |
 
@@ -379,8 +430,79 @@ bundr completion bash|zsh|fish
 ### bundr cache
 
 ```
-bundr cache refresh
+bundr cache refresh [prefix]
+bundr cache clear
 ```
+
+## Advanced topics
+
+### JSON flattening
+
+When parameters are stored in a JSON-encoded hierarchy (store-mode=json), bundr flattens nested keys into environment variable names using a delimiter.
+
+```bash
+# Given these parameters:
+# ps:/app/db_host  = "localhost"   (raw)
+# ps:/app/server   = '{"host":"0.0.0.0","port":8080}'  (json, nested)
+
+bundr export ps:/app/ --format shell
+# export DB_HOST=localhost
+# export SERVER_HOST=0.0.0.0
+# export SERVER_PORT=8080
+```
+
+Use `--no-flatten` to keep JSON values as-is:
+
+```bash
+bundr export ps:/app/ --format shell --no-flatten
+# export DB_HOST=localhost
+# export SERVER={"host":"0.0.0.0","port":8080}
+```
+
+### Array handling modes
+
+When a JSON value is an array, `--array-mode` controls the output:
+
+| Mode | Input | Output |
+|------|-------|--------|
+| `join` (default) | `["a","b","c"]` | `ITEMS=a,b,c` |
+| `index` | `["a","b","c"]` | `ITEMS_0=a`, `ITEMS_1=b`, `ITEMS_2=c` |
+| `json` | `["a","b","c"]` | `ITEMS=["a","b","c"]` |
+
+```bash
+# join mode (default)
+bundr export ps:/app/ --format shell --array-mode join --array-join-delim ":"
+# export PATH_EXTRA=/usr/local/bin:/usr/bin
+
+# index mode
+bundr export ps:/app/ --format shell --array-mode index
+# export ITEMS_0=a
+# export ITEMS_1=b
+
+# json mode (keep raw JSON)
+bundr export ps:/app/ --format shell --array-mode json
+# export ITEMS=["a","b","c"]
+```
+
+### Tab completion
+
+Enable tab completion to navigate parameter hierarchies interactively:
+
+```bash
+eval "$(bundr completion zsh)"   # add to ~/.zshrc
+eval "$(bundr completion bash)"  # add to ~/.bashrc
+```
+
+The completion engine caches parameter paths locally. Run `bundr cache refresh` to pre-populate the cache before first use:
+
+```bash
+bundr cache refresh ps:/          # cache all Parameter Store paths
+bundr cache refresh sm:           # cache all Secrets Manager paths
+```
+
+**Known limitations:**
+- Tab completion requires the `bundr` binary to be in `$PATH` under the name `bundr`. A local build (e.g. `./bundr`) will not trigger registered completion functions.
+- When using short-lived credentials (aws-vault, AWS SSO), the credential may expire before the background cache process runs. Pre-populate the cache while credentials are active with `bundr cache refresh`.
 
 ## Configuration
 

@@ -216,6 +216,14 @@ eval "$(bundr completion bash)"
 bundr completion fish | source
 ```
 
+Tab 補完はパラメータ階層を1段ずつたどれる:
+
+```bash
+bundr get ps:/<TAB>            # ps:/app/  ps:/config/
+bundr get ps:/app/<TAB>        # ps:/app/prod/  ps:/app/stg/
+bundr get ps:/app/prod/<TAB>   # ps:/app/prod/DB_HOST  ps:/app/prod/DB_PORT
+```
+
 ### bundr cache
 
 パラメータ一覧キャッシュを管理する（補完高速化のため自動管理）。

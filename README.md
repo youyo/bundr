@@ -260,6 +260,14 @@ eval "$(bundr completion bash)"
 bundr completion fish | source
 ```
 
+Tab completion navigates the parameter hierarchy one level at a time:
+
+```bash
+bundr get ps:/<TAB>            # ps:/app/  ps:/config/
+bundr get ps:/app/<TAB>        # ps:/app/prod/  ps:/app/stg/
+bundr get ps:/app/prod/<TAB>   # ps:/app/prod/DB_HOST  ps:/app/prod/DB_PORT
+```
+
 ### cache
 
 bundr caches parameter paths locally to make tab completion fast. The cache refreshes in the background automatically during completion.

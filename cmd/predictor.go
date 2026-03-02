@@ -40,12 +40,7 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string)
 
 		backendType := string(ref.Type)
 
-		// 2. sm: は空リスト返す（GetByPrefix の概念がない）
-		if ref.Type == backend.BackendTypeSM {
-			return []string{}
-		}
-
-		// 3. キャッシュを読む
+		// 2. キャッシュを読む
 		entries, err := cacheStore.Read(backendType)
 		if err == cache.ErrCacheNotFound {
 			// キャッシュなし（初回）→ 次回補完のために BG でキャッシュ作成
@@ -79,13 +74,19 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string)
 // newPrefixPredictor は prefix-style 補完の内部関数（テスト用に cmd パッケージ内でアクセス可能）。
 func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(string) []string {
 	return func(prefix string) []string {
-		// 空文字（全バックエンド）の場合は ps: と psa: 両方のパスを返す
+		// 空文字（全バックエンド）の場合は ps:/psa:/sm: 全パスを返す
 		if prefix == "" {
 			var candidates []string
-			for _, backendType := range []string{"ps", "psa"} {
+			for _, backendType := range []string{"ps", "psa", "sm"} {
+				// sm: のキャッシュリフレッシュ引数は "sm:"（空 path）、それ以外は "ps:/" 形式
+				refreshArg := backendType + ":/"
+				if backendType == "sm" {
+					refreshArg = "sm:"
+				}
+
 				entries, err := cacheStore.Read(backendType)
 				if err == cache.ErrCacheNotFound {
-					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", backendType+":/")
+					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", refreshArg)
 					continue
 				} else if err != nil {
 					fmt.Fprintf(os.Stderr, "cache read error for %s: %v\n", backendType, err)
@@ -98,7 +99,7 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 
 				lastRefresh := cacheStore.LastRefreshedAt(backendType)
 				if time.Since(lastRefresh) > 10*time.Second {
-					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", "--prefix", backendType+":/")
+					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", "--prefix", refreshArg)
 				}
 			}
 			return candidates
@@ -111,11 +112,6 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher) func(stri
 		}
 
 		backendType := string(ref.Type)
-
-		// sm: は空リスト返す
-		if ref.Type == backend.BackendTypeSM {
-			return []string{}
-		}
 
 		entries, err := cacheStore.Read(backendType)
 		if err == cache.ErrCacheNotFound {

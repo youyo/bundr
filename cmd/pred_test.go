@@ -142,7 +142,7 @@ func TestNewRefPredictor_InvalidPrefix(t *testing.T) {
 	}
 }
 
-// pred-cmd-007: PrefixPredictor - 空文字 → ps: と psa: の両パスを返す（スロットリング内）
+// pred-cmd-007: PrefixPredictor - 空文字 → ps:, psa:, sm: の全パスを返す（スロットリング内）
 func TestNewPrefixPredictor_EmptyPrefix(t *testing.T) {
 	store := &MockStore{
 		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
@@ -151,6 +151,9 @@ func TestNewPrefixPredictor_EmptyPrefix(t *testing.T) {
 			}
 			if backendType == "psa" {
 				return []cache.CacheEntry{{Path: "/app/advanced/KEY", StoreMode: "json"}}, nil
+			}
+			if backendType == "sm" {
+				return []cache.CacheEntry{{Path: "my-secret", StoreMode: "raw"}}, nil
 			}
 			return nil, cache.ErrCacheNotFound
 		},
@@ -167,7 +170,7 @@ func TestNewPrefixPredictor_EmptyPrefix(t *testing.T) {
 		t.Fatal("expected non-empty candidates for empty prefix")
 	}
 
-	psFound, psaFound := false, false
+	psFound, psaFound, smFound := false, false, false
 	for _, c := range candidates {
 		if strings.HasPrefix(c, "ps:/") {
 			psFound = true
@@ -175,9 +178,12 @@ func TestNewPrefixPredictor_EmptyPrefix(t *testing.T) {
 		if strings.HasPrefix(c, "psa:/") {
 			psaFound = true
 		}
+		if strings.HasPrefix(c, "sm:") {
+			smFound = true
+		}
 	}
-	if !psFound || !psaFound {
-		t.Errorf("expected both ps: and psa: candidates, got %v", candidates)
+	if !psFound || !psaFound || !smFound {
+		t.Errorf("expected ps:, psa:, and sm: candidates, got %v", candidates)
 	}
 
 	if len(bg.LaunchCalls) != 0 {
@@ -185,7 +191,7 @@ func TestNewPrefixPredictor_EmptyPrefix(t *testing.T) {
 	}
 }
 
-// pred-cmd-008: PrefixPredictor - 空文字、10秒超過 → BG 起動あり
+// pred-cmd-008: PrefixPredictor - 空文字、10秒超過 → BG 起動あり（ps:, psa:, sm: の 3 回）
 func TestNewPrefixPredictor_EmptyPrefixBGRefresh(t *testing.T) {
 	store := &MockStore{
 		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
@@ -200,8 +206,8 @@ func TestNewPrefixPredictor_EmptyPrefixBGRefresh(t *testing.T) {
 	fn := newPrefixPredictor(store, bg)
 	fn("")
 
-	if len(bg.LaunchCalls) < 2 {
-		t.Errorf("expected 2 BG launches for ps: and psa:, got %d", len(bg.LaunchCalls))
+	if len(bg.LaunchCalls) < 3 {
+		t.Errorf("expected 3 BG launches for ps:, psa:, and sm:, got %d", len(bg.LaunchCalls))
 	}
 }
 
@@ -368,14 +374,14 @@ func TestNewPrefixPredictor_CacheMiss_LaunchesBG(t *testing.T) {
 	}
 }
 
-// pred-cmd-T6: PrefixPredictor - 空文字、片方が ErrCacheNotFound → 残りのキャッシュ返す + missing 側の BG 起動
+// pred-cmd-T6: PrefixPredictor - 空文字、ps: と sm: が ErrCacheNotFound → psa のキャッシュ返す + 2 回の BG 起動
 func TestNewPrefixPredictor_EmptyPrefixPartialCache_LaunchesBG(t *testing.T) {
 	store := &MockStore{
 		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
 			if backendType == "psa" {
 				return []cache.CacheEntry{{Path: "/app/advanced/KEY", StoreMode: "json"}}, nil
 			}
-			return nil, cache.ErrCacheNotFound // ps はキャッシュなし
+			return nil, cache.ErrCacheNotFound // ps, sm はキャッシュなし
 		},
 		LastRefreshedAtFunc: func(backendType string) time.Time {
 			return time.Now() // 最近更新済み（スロットリング内）
@@ -396,13 +402,9 @@ func TestNewPrefixPredictor_EmptyPrefixPartialCache_LaunchesBG(t *testing.T) {
 		}
 	}
 
-	// ps の ErrCacheNotFound で BG 起動が発生していること
-	if len(bg.LaunchCalls) == 0 {
-		t.Error("expected BGLauncher to be called for missing ps cache")
-	}
-	// psa はキャッシュあり（スロットリング内）なので BG 起動は ps の 1 回のみ
-	if len(bg.LaunchCalls) > 1 {
-		t.Errorf("expected exactly 1 BG launch (for ps), got %d", len(bg.LaunchCalls))
+	// ps と sm の ErrCacheNotFound で BG 起動が 2 回発生していること
+	if len(bg.LaunchCalls) != 2 {
+		t.Errorf("expected exactly 2 BG launches (for ps and sm), got %d", len(bg.LaunchCalls))
 	}
 }
 

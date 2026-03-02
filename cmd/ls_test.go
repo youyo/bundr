@@ -70,11 +70,32 @@ func TestLsCmd(t *testing.T) {
 			},
 		},
 		{
-			// L-04: sm: 指定 → エラー（GetByPrefix 非対応）
-			id:      "L-04",
-			from:    "sm:secret",
-			setup:   func(mb *backend.MockBackend) {},
-			wantErr: "sm: backend is not supported",
+			// L-04: sm:prefix 指定 → sm: backend でシークレット一覧を取得できる
+			id:   "L-04",
+			from: "sm:partner-ops/",
+			setup: func(mb *backend.MockBackend) {
+				ctx := context.Background()
+				_ = mb.Put(ctx, "sm:partner-ops/api-key", backend.PutOptions{Value: "secret", StoreMode: tags.StoreModeRaw})
+				_ = mb.Put(ctx, "sm:partner-ops/db-pass", backend.PutOptions{Value: "pass", StoreMode: tags.StoreModeRaw})
+			},
+			want: []string{
+				"sm:partner-ops/api-key",
+				"sm:partner-ops/db-pass",
+			},
+		},
+		{
+			// L-04b: sm: (全シークレット) → 全シークレット一覧
+			id:   "L-04b",
+			from: "sm:",
+			setup: func(mb *backend.MockBackend) {
+				ctx := context.Background()
+				_ = mb.Put(ctx, "sm:secret-a", backend.PutOptions{Value: "v1", StoreMode: tags.StoreModeRaw})
+				_ = mb.Put(ctx, "sm:secret-b", backend.PutOptions{Value: "v2", StoreMode: tags.StoreModeRaw})
+			},
+			want: []string{
+				"sm:secret-a",
+				"sm:secret-b",
+			},
 		},
 	}
 

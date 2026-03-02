@@ -19,19 +19,21 @@ type CacheRefreshCmd struct {
 }
 
 // Run はキャッシュ更新コマンドを実行する。
-// 1. ParseRef で prefix を検証（sm: は対象外）
+// 1. ParseRef で prefix を検証
 // 2. BackendFactory でバックエンドを作成
 // 3. GetByPrefix(recursive=true) で全エントリ取得
 // 4. CacheStore.Write でキャッシュに書き込む
 func (c *CacheRefreshCmd) Run(appCtx *Context) error {
-	ref, err := backend.ParseRef(c.Prefix)
-	if err != nil {
-		return fmt.Errorf("cache refresh: invalid prefix: %w", err)
-	}
-
-	// sm: は補完対象外（GetByPrefix の概念がない）
-	if ref.Type == backend.BackendTypeSM {
-		return fmt.Errorf("cache refresh: sm: backend is not supported for completion cache")
+	// sm: (empty path) refreshes cache for all secrets
+	var ref backend.Ref
+	if c.Prefix == "sm:" {
+		ref = backend.Ref{Type: backend.BackendTypeSM, Path: ""}
+	} else {
+		var parseErr error
+		ref, parseErr = backend.ParseRef(c.Prefix)
+		if parseErr != nil {
+			return fmt.Errorf("cache refresh: invalid prefix: %w", parseErr)
+		}
 	}
 
 	b, err := appCtx.BackendFactory(ref.Type)

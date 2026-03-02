@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -74,6 +75,34 @@ func (m *mockSMClient) DescribeSecret(ctx context.Context, input *secretsmanager
 		Tags: secret.tags,
 		Name: aws.String(name),
 	}, nil
+}
+
+func (m *mockSMClient) ListSecrets(ctx context.Context, input *secretsmanager.ListSecretsInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error) {
+	var list []smtypes.SecretListEntry
+	for name, s := range m.secrets {
+		if len(input.Filters) > 0 {
+			matched := false
+			for _, f := range input.Filters {
+				for _, v := range f.Values {
+					if strings.HasPrefix(name, v) {
+						matched = true
+						break
+					}
+				}
+				if matched {
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		list = append(list, smtypes.SecretListEntry{
+			Name: aws.String(name),
+			Tags: s.tags,
+		})
+	}
+	return &secretsmanager.ListSecretsOutput{SecretList: list}, nil
 }
 
 func (m *mockSMClient) TagResource(ctx context.Context, input *secretsmanager.TagResourceInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.TagResourceOutput, error) {
@@ -393,6 +422,85 @@ func TestSMBackend_GetWithSMPrefix(t *testing.T) {
 	}
 	if val != "hello" {
 		t.Errorf("Get() = %q, want %q", val, "hello")
+	}
+}
+
+func TestSMBackend_GetByPrefix_Empty(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	_ = b.Put(ctx, "sm:secret-a", PutOptions{Value: "v1", StoreMode: tags.StoreModeRaw})
+	_ = b.Put(ctx, "sm:secret-b", PutOptions{Value: "v2", StoreMode: tags.StoreModeRaw})
+
+	entries, err := b.GetByPrefix(ctx, "", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(entries))
+	}
+}
+
+func TestSMBackend_GetByPrefix_WithPrefix(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	_ = b.Put(ctx, "sm:partner-ops/api-key", PutOptions{Value: "v1", StoreMode: tags.StoreModeRaw})
+	_ = b.Put(ctx, "sm:partner-ops/db-pass", PutOptions{Value: "v2", StoreMode: tags.StoreModeRaw})
+	_ = b.Put(ctx, "sm:other/key", PutOptions{Value: "v3", StoreMode: tags.StoreModeRaw})
+
+	entries, err := b.GetByPrefix(ctx, "partner-ops/", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries, got %d: %v", len(entries), entries)
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Path, "partner-ops/") {
+			t.Errorf("unexpected path %q", e.Path)
+		}
+	}
+}
+
+func TestSMBackend_GetByPrefix_NoRecursive(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	_ = b.Put(ctx, "sm:partner-ops/api-key", PutOptions{Value: "v1", StoreMode: tags.StoreModeRaw})
+	_ = b.Put(ctx, "sm:partner-ops/sub/nested", PutOptions{Value: "v2", StoreMode: tags.StoreModeRaw})
+
+	entries, err := b.GetByPrefix(ctx, "partner-ops/", GetByPrefixOptions{Recursive: false})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry (direct child only), got %d: %v", len(entries), entries)
+	}
+	if entries[0].Path != "partner-ops/api-key" {
+		t.Errorf("unexpected path %q, want %q", entries[0].Path, "partner-ops/api-key")
+	}
+}
+
+func TestSMBackend_GetByPrefix_StoreMode(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	_ = b.Put(ctx, "sm:json-secret", PutOptions{Value: "hello", StoreMode: tags.StoreModeJSON})
+
+	entries, err := b.GetByPrefix(ctx, "json-secret", GetByPrefixOptions{Recursive: true})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].StoreMode != tags.StoreModeJSON {
+		t.Errorf("StoreMode = %q, want %q", entries[0].StoreMode, tags.StoreModeJSON)
 	}
 }
 

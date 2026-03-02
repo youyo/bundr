@@ -114,11 +114,29 @@ func (m *MockBackend) Get(_ context.Context, ref string, opts GetOptions) (strin
 // GetByPrefix retrieves all entries whose path starts with the given prefix.
 // The prefix is matched against the parsed path (not the full ref string),
 // matching the behavior of the real PSBackend which receives SSM paths.
+// An empty prefix returns all entries (used by sm: backend for listing all secrets).
 func (m *MockBackend) GetByPrefix(_ context.Context, prefix string, opts GetByPrefixOptions) ([]ParameterEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.GetByPrefixCalls = append(m.GetByPrefixCalls, GetByPrefixCall{Prefix: prefix, Opts: opts})
+
+	// Empty prefix: return all entries (supports sm: list-all semantics)
+	if prefix == "" {
+		var result []ParameterEntry
+		for ref, entry := range m.store {
+			parsed, err := ParseRef(ref)
+			if err != nil {
+				continue
+			}
+			result = append(result, ParameterEntry{
+				Path:      parsed.Path,
+				Value:     entry.Value,
+				StoreMode: entry.StoreMode,
+			})
+		}
+		return result, nil
+	}
 
 	// Normalize prefix to always have trailing slash
 	normalizedPrefix := prefix

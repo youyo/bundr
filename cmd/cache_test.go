@@ -99,20 +99,34 @@ func TestCacheRefreshCmd_Success(t *testing.T) {
 	}
 }
 
-// cmd-cache-002: prefix が sm: → エラー（sm: は補完対象外）
+// cmd-cache-002: sm:prefix → GetByPrefix が呼ばれ、CacheStore.Write("sm") が呼ばれる
 func TestCacheRefreshCmd_SMPrefix(t *testing.T) {
+	mock := backend.NewMockBackend()
+	ctx := context.Background()
+	_ = mock.Put(ctx, "sm:my-secret", backend.PutOptions{
+		Value:     "value",
+		StoreMode: tags.StoreModeRaw,
+	})
+
+	mockStore := &MockStore{}
 	appCtx := &Context{
 		BackendFactory: func(_ backend.BackendType) (backend.Backend, error) {
-			t.Fatal("BackendFactory should not be called for sm: prefix")
-			return nil, nil
+			return mock, nil
 		},
-		CacheStore: &MockStore{},
+		CacheStore: mockStore,
 	}
 
 	cmd := &CacheRefreshCmd{Prefix: "sm:my-secret"}
 	err := cmd.Run(appCtx)
-	if err == nil {
-		t.Error("Run() expected error for sm: prefix, got nil")
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	if len(mockStore.WriteCalls) != 1 {
+		t.Fatalf("Write called %d times, want 1", len(mockStore.WriteCalls))
+	}
+	if got := mockStore.WriteCalls[0].BackendType; got != "sm" {
+		t.Errorf("Write backendType = %q, want %q", got, "sm")
 	}
 }
 

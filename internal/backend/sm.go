@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -19,6 +20,7 @@ type smClient interface {
 	GetSecretValue(ctx context.Context, input *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
 	DescribeSecret(ctx context.Context, input *secretsmanager.DescribeSecretInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.DescribeSecretOutput, error)
 	TagResource(ctx context.Context, input *secretsmanager.TagResourceInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.TagResourceOutput, error)
+	ListSecrets(ctx context.Context, input *secretsmanager.ListSecretsInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error)
 }
 
 // SMBackend implements Backend for AWS Secrets Manager.
@@ -143,9 +145,53 @@ func mapToSMTags(m map[string]string) []smtypes.Tag {
 	return result
 }
 
-// GetByPrefix is not supported for Secrets Manager backend.
-func (b *SMBackend) GetByPrefix(_ context.Context, _ string, _ GetByPrefixOptions) ([]ParameterEntry, error) {
-	return nil, fmt.Errorf("GetByPrefix is not supported for Secrets Manager backend")
+// GetByPrefix retrieves all secrets with the given name prefix from AWS Secrets Manager.
+// An empty prefix returns all secrets.
+func (b *SMBackend) GetByPrefix(ctx context.Context, prefix string, opts GetByPrefixOptions) ([]ParameterEntry, error) {
+	var entries []ParameterEntry
+	var nextToken *string
+
+	for {
+		input := &secretsmanager.ListSecretsInput{}
+		if prefix != "" {
+			input.Filters = []smtypes.Filter{
+				{Key: smtypes.FilterNameStringTypeName, Values: []string{prefix}},
+			}
+		}
+		if nextToken != nil {
+			input.NextToken = nextToken
+		}
+
+		out, err := b.client.ListSecrets(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("list secrets: %w", err)
+		}
+
+		for _, secret := range out.SecretList {
+			name := aws.ToString(secret.Name)
+
+			if !opts.Recursive && prefix != "" {
+				remainder := strings.TrimPrefix(name, prefix)
+				if strings.Contains(remainder, "/") {
+					continue
+				}
+			}
+
+			storeMode := getTagValue(secret.Tags, tags.TagStoreMode)
+			entries = append(entries, ParameterEntry{
+				Path:      name,
+				Value:     "",
+				StoreMode: storeMode,
+			})
+		}
+
+		nextToken = out.NextToken
+		if nextToken == nil {
+			break
+		}
+	}
+
+	return entries, nil
 }
 
 // getTagValue finds a tag value by key from a slice of SM tags.

@@ -24,13 +24,16 @@ func (c *LsCmd) Run(appCtx *Context) error {
 		c.out = os.Stdout
 	}
 
-	ref, err := backend.ParseRef(c.From)
-	if err != nil {
-		return fmt.Errorf("ls command failed: invalid ref: %w", err)
-	}
-
-	if ref.Type == backend.BackendTypeSM {
-		return fmt.Errorf("ls command failed: sm: backend is not supported (use ps: or psa:)")
+	// sm: (empty path) lists all secrets without a prefix filter
+	var ref backend.Ref
+	if c.From == "sm:" {
+		ref = backend.Ref{Type: backend.BackendTypeSM, Path: ""}
+	} else {
+		var parseErr error
+		ref, parseErr = backend.ParseRef(c.From)
+		if parseErr != nil {
+			return fmt.Errorf("ls command failed: invalid ref: %w", parseErr)
+		}
 	}
 
 	b, err := appCtx.BackendFactory(ref.Type)

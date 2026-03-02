@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/posener/complete"
+	"github.com/youyo/bundr/internal/backend"
 	"github.com/youyo/bundr/internal/cache"
+	"github.com/youyo/bundr/internal/tags"
 )
 
 // MockBGLauncher はテスト用のバックグラウンドランチャー（cmd パッケージ内）。
@@ -623,5 +626,110 @@ func TestNewPrefixPredictor_AsPredictor(t *testing.T) {
 	result := predictor.Predict(complete.Args{Last: ""})
 	if result == nil {
 		t.Error("expected non-nil result")
+	}
+}
+
+// ─── liveFetchPath ユニットテスト ───────────────────────────────────────────
+
+func TestLiveFetchPath_Root(t *testing.T) {
+	if got := liveFetchPath("/"); got != "/" {
+		t.Errorf("expected /, got %s", got)
+	}
+}
+
+func TestLiveFetchPath_PartialSegment(t *testing.T) {
+	if got := liveFetchPath("/s"); got != "/" {
+		t.Errorf("expected /, got %s", got)
+	}
+}
+
+func TestLiveFetchPath_TrailingSlash(t *testing.T) {
+	if got := liveFetchPath("/stratalog/"); got != "/stratalog/" {
+		t.Errorf("expected /stratalog/, got %s", got)
+	}
+}
+
+func TestLiveFetchPath_DeepPartial(t *testing.T) {
+	if got := liveFetchPath("/stratalog/pr"); got != "/stratalog/" {
+		t.Errorf("expected /stratalog/, got %s", got)
+	}
+}
+
+func TestLiveFetchPath_SMSecret(t *testing.T) {
+	if got := liveFetchPath("my-secret"); got != "my-secret" {
+		t.Errorf("expected my-secret, got %s", got)
+	}
+}
+
+func TestLiveFetchPath_Empty(t *testing.T) {
+	if got := liveFetchPath(""); got != "" {
+		t.Errorf("expected empty string, got %s", got)
+	}
+}
+
+// ─── CacheMiss + factory あり のシナリオ ────────────────────────────────────
+
+// makeTestFactory は指定パスを put 済みの MockBackend を返す factory を作る。
+func makeTestFactory(refs ...string) BackendFactory {
+	return func(bt backend.BackendType) (backend.Backend, error) {
+		mock := backend.NewMockBackend()
+		ctx := context.Background()
+		for _, ref := range refs {
+			_ = mock.Put(ctx, ref, backend.PutOptions{Value: "v", StoreMode: tags.StoreModeRaw})
+		}
+		return mock, nil
+	}
+}
+
+// pred-cmd-T7: RefPredictor - キャッシュなし・factory あり・部分パス "ps:/s" → ps:/stratalog/ を返す
+func TestNewRefPredictor_CacheMiss_WithFactory_PartialPath(t *testing.T) {
+	store := &MockStore{} // ErrCacheNotFound
+	bg := &MockBGLauncher{}
+	factory := makeTestFactory("ps:/stratalog/key1", "ps:/cdk-bootstrap/key2")
+
+	fn := newRefPredictor(store, bg, factory)
+	candidates := fn("ps:/s")
+
+	// /stratalog/... のみが /s にマッチ
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d: %v", len(candidates), candidates)
+	}
+	if candidates[0] != "ps:/stratalog/" {
+		t.Errorf("expected ps:/stratalog/, got %s", candidates[0])
+	}
+}
+
+// pred-cmd-T8: RefPredictor - キャッシュなし・factory あり・深い部分パス "ps:/stratalog/pr" → ps:/stratalog/proj/ を返す
+func TestNewRefPredictor_CacheMiss_WithFactory_DeepPartial(t *testing.T) {
+	store := &MockStore{} // ErrCacheNotFound
+	bg := &MockBGLauncher{}
+	factory := makeTestFactory("ps:/stratalog/proj/key1", "ps:/stratalog/stg/key2")
+
+	fn := newRefPredictor(store, bg, factory)
+	candidates := fn("ps:/stratalog/pr")
+
+	// /stratalog/proj/... のみが /stratalog/pr にマッチ
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d: %v", len(candidates), candidates)
+	}
+	if candidates[0] != "ps:/stratalog/proj/" {
+		t.Errorf("expected ps:/stratalog/proj/, got %s", candidates[0])
+	}
+}
+
+// pred-cmd-T9: PrefixPredictor - キャッシュなし・factory あり・部分パス "ps:/s" → ps:/stratalog/ を返す
+func TestNewPrefixPredictor_CacheMiss_WithFactory_PartialPath(t *testing.T) {
+	store := &MockStore{} // ErrCacheNotFound
+	bg := &MockBGLauncher{}
+	factory := makeTestFactory("ps:/stratalog/key1", "ps:/cdk-bootstrap/key2")
+
+	fn := newPrefixPredictor(store, bg, factory)
+	candidates := fn("ps:/s")
+
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d: %v", len(candidates), candidates)
+	}
+	if candidates[0] != "ps:/stratalog/" {
+		t.Errorf("expected ps:/stratalog/, got %s", candidates[0])
 	}
 }

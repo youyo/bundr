@@ -30,6 +30,27 @@ func NewPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory B
 	})
 }
 
+// liveFetchPath は fetchLive に渡す prefix を計算する。
+// PS/PSA パスは "/" 始まりの階層パスのため、末尾が "/" でない場合は親ディレクトリを返す。
+// SM シークレット名（"/" を含まない）はそのまま返す（AWS API の扱いが PS と異なるため）。
+// 例: "/s" → "/", "/stratalog/pr" → "/stratalog/", "/stratalog/" → "/stratalog/"
+// 例: "my-secret" → "my-secret"（SM の場合は変更なし）
+func liveFetchPath(refPath string) string {
+	if !strings.HasPrefix(refPath, "/") {
+		return refPath
+	}
+	if refPath == "/" {
+		return "/"
+	}
+	if strings.HasSuffix(refPath, "/") {
+		return refPath
+	}
+	if idx := strings.LastIndex(refPath, "/"); idx >= 0 {
+		return refPath[:idx+1]
+	}
+	return "/"
+}
+
 // makeBGArg は cache refresh のバックグラウンド起動引数を返す。
 // sm: はパスの概念がないため "sm:" を返し、それ以外は "ps:/" 形式を返す。
 func makeBGArg(backendType string) string {
@@ -95,7 +116,7 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory Back
 		if err == cache.ErrCacheNotFound {
 			// キャッシュなし → BG でキャッシュ作成 + リアルタイム API で候補を返す
 			_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
-			liveEntries := fetchLive(factory, backendType, ref.Path)
+			liveEntries := fetchLive(factory, backendType, liveFetchPath(ref.Path))
 			return hierarchicalFilter(ref.Path, liveEntries, string(ref.Type))
 		} else if err != nil {
 			// ErrCacheNotFound 以外のエラー → stderr ログ、空リスト返す
@@ -165,7 +186,7 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory B
 		if err == cache.ErrCacheNotFound {
 			// キャッシュなし → BG でキャッシュ作成 + リアルタイム API で候補を返す
 			_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", bgArg)
-			liveEntries := fetchLive(factory, backendType, ref.Path)
+			liveEntries := fetchLive(factory, backendType, liveFetchPath(ref.Path))
 			return hierarchicalFilter(ref.Path, liveEntries, string(ref.Type))
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "cache read error for %s: %v\n", backendType, err)

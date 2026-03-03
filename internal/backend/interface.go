@@ -19,8 +19,9 @@ type GetOptions struct {
 
 // GetByPrefixOptions contains options for the GetByPrefix operation.
 type GetByPrefixOptions struct {
-	Recursive    bool
-	SkipTagFetch bool // タグ取得スキップ（補完・cache refresh 専用）。StoreMode = ""
+	Recursive       bool
+	SkipTagFetch    bool // タグ取得スキップ（補完・cache refresh 専用）。StoreMode = ""
+	IncludeMetadata bool // ls --describe 用: AWS レスポンスのメタデータを Metadata フィールドに格納
 }
 
 // ParameterEntry represents a single parameter retrieved by GetByPrefix.
@@ -28,6 +29,7 @@ type ParameterEntry struct {
 	Path      string
 	Value     string
 	StoreMode string
+	Metadata  map[string]any // nil = 未取得（IncludeMetadata=false 時）
 }
 
 // Backend is the interface for interacting with AWS parameter/secret backends.
@@ -35,4 +37,5 @@ type Backend interface {
 	Put(ctx context.Context, ref string, opts PutOptions) error
 	Get(ctx context.Context, ref string, opts GetOptions) (string, error)
 	GetByPrefix(ctx context.Context, prefix string, opts GetByPrefixOptions) ([]ParameterEntry, error)
+	Describe(ctx context.Context, ref string) (map[string]any, error)
 }

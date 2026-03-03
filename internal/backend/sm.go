@@ -178,10 +178,25 @@ func (b *SMBackend) GetByPrefix(ctx context.Context, prefix string, opts GetByPr
 			}
 
 			storeMode := getTagValue(secret.Tags, tags.TagStoreMode)
+
+			var metadata map[string]any
+			if opts.IncludeMetadata {
+				metadata = map[string]any{
+					"ARN":              aws.ToString(secret.ARN),
+					"Name":             name,
+					"Description":      aws.ToString(secret.Description),
+					"CreatedDate":      secret.CreatedDate,
+					"LastAccessedDate": secret.LastAccessedDate,
+					"LastChangedDate":  secret.LastChangedDate,
+					"LastRotatedDate":  secret.LastRotatedDate,
+				}
+			}
+
 			entries = append(entries, ParameterEntry{
 				Path:      name,
 				Value:     "",
 				StoreMode: storeMode,
+				Metadata:  metadata,
 			})
 		}
 
@@ -192,6 +207,45 @@ func (b *SMBackend) GetByPrefix(ctx context.Context, prefix string, opts GetByPr
 	}
 
 	return entries, nil
+}
+
+// Describe returns metadata for the given Secrets Manager ref as a map.
+// Combines GetSecretValue (ARN, Name, VersionId, VersionStages, Value) and
+// DescribeSecret (CreatedDate, LastAccessedDate, LastRotatedDate).
+func (b *SMBackend) Describe(ctx context.Context, ref string) (map[string]any, error) {
+	parsed, err := ParseRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	secretName := parsed.Path
+
+	gsvOut, err := b.client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(secretName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get secret value: %w", err)
+	}
+
+	result := map[string]any{
+		"ARN":           aws.ToString(gsvOut.ARN),
+		"Name":          aws.ToString(gsvOut.Name),
+		"VersionId":     aws.ToString(gsvOut.VersionId),
+		"VersionStages": gsvOut.VersionStages,
+		"Value":         aws.ToString(gsvOut.SecretString),
+	}
+
+	dsOut, err := b.client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
+		SecretId: aws.String(secretName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe secret: %w", err)
+	}
+
+	result["CreatedDate"] = dsOut.CreatedDate
+	result["LastAccessedDate"] = dsOut.LastAccessedDate
+	result["LastRotatedDate"] = dsOut.LastRotatedDate
+
+	return result, nil
 }
 
 // getTagValue finds a tag value by key from a slice of SM tags.

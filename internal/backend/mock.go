@@ -28,6 +28,11 @@ type GetByPrefixCall struct {
 	Opts   GetByPrefixOptions
 }
 
+// DescribeCall records a call to Describe.
+type DescribeCall struct {
+	Ref string
+}
+
 type mockEntry struct {
 	Value     string
 	StoreMode string
@@ -41,6 +46,7 @@ type MockBackend struct {
 	PutCalls         []PutCall
 	GetCalls         []GetCall
 	GetByPrefixCalls []GetByPrefixCall
+	DescribeCalls    []DescribeCall
 }
 
 // NewMockBackend creates a new MockBackend.
@@ -129,10 +135,15 @@ func (m *MockBackend) GetByPrefix(_ context.Context, prefix string, opts GetByPr
 			if err != nil {
 				continue
 			}
+			var metadata map[string]any
+			if opts.IncludeMetadata {
+				metadata = tagsToMetadata(entry.Tags)
+			}
 			result = append(result, ParameterEntry{
 				Path:      parsed.Path,
 				Value:     entry.Value,
 				StoreMode: entry.StoreMode,
+				Metadata:  metadata,
 			})
 		}
 		return result, nil
@@ -160,13 +171,45 @@ func (m *MockBackend) GetByPrefix(_ context.Context, prefix string, opts GetByPr
 				continue
 			}
 		}
+		var metadata map[string]any
+		if opts.IncludeMetadata {
+			metadata = tagsToMetadata(entry.Tags)
+		}
 		result = append(result, ParameterEntry{
 			Path:      parsed.Path,
 			Value:     entry.Value,
 			StoreMode: entry.StoreMode,
+			Metadata:  metadata,
 		})
 	}
 	return result, nil
+}
+
+// Describe returns mock metadata for the given ref.
+// Tags are returned as the metadata map, plus the Value field.
+func (m *MockBackend) Describe(_ context.Context, ref string) (map[string]any, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	m.DescribeCalls = append(m.DescribeCalls, DescribeCall{Ref: ref})
+
+	entry, ok := m.store[ref]
+	if !ok {
+		return nil, fmt.Errorf("key not found: %s", ref)
+	}
+
+	result := tagsToMetadata(entry.Tags)
+	result["Value"] = entry.Value
+	return result, nil
+}
+
+// tagsToMetadata converts a string map of tags to map[string]any.
+func tagsToMetadata(tags map[string]string) map[string]any {
+	result := make(map[string]any, len(tags))
+	for k, v := range tags {
+		result[k] = v
+	}
+	return result
 }
 
 // decodeJSON decodes a JSON-encoded value.

@@ -189,10 +189,23 @@ func (b *PSBackend) GetByPrefix(ctx context.Context, prefix string, opts GetByPr
 				}
 			}
 
+			var metadata map[string]any
+			if opts.IncludeMetadata {
+				metadata = map[string]any{
+					"Name":             path,
+					"Type":             string(param.Type),
+					"Version":          param.Version,
+					"ARN":              aws.ToString(param.ARN),
+					"DataType":         aws.ToString(param.DataType),
+					"LastModifiedDate": param.LastModifiedDate,
+				}
+			}
+
 			entries = append(entries, ParameterEntry{
 				Path:      path,
 				Value:     value,
 				StoreMode: storeMode,
+				Metadata:  metadata,
 			})
 		}
 
@@ -221,4 +234,33 @@ func (b *PSBackend) getStoreMode(ctx context.Context, path string) (string, erro
 		}
 	}
 	return tags.StoreModeRaw, nil
+}
+
+// Describe returns metadata for the given SSM parameter ref as a map.
+// Fields: Name, Type, Value, Version, ARN, LastModifiedDate, DataType.
+func (b *PSBackend) Describe(ctx context.Context, ref string) (map[string]any, error) {
+	parsed, err := ParseRef(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := b.client.GetParameter(ctx, &ssm.GetParameterInput{
+		Name:           aws.String(parsed.Path),
+		WithDecryption: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ssm GetParameter: %w", err)
+	}
+
+	p := out.Parameter
+	result := map[string]any{
+		"Name":             aws.ToString(p.Name),
+		"Type":             string(p.Type),
+		"Value":            aws.ToString(p.Value),
+		"Version":          p.Version,
+		"ARN":              aws.ToString(p.ARN),
+		"DataType":         aws.ToString(p.DataType),
+		"LastModifiedDate": p.LastModifiedDate,
+	}
+	return result, nil
 }

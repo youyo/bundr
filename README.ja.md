@@ -13,16 +13,16 @@ AWS Parameter Store と Secrets Manager を統合して操作する Go CLI。
 
 ```yaml
 steps:
-  - uses: youyo/bundr@v0.5
+  - uses: youyo/bundr@v0.6
 ```
 
 特定バージョンを固定する場合:
 
 ```yaml
 steps:
-  - uses: youyo/bundr@v0.5.2
+  - uses: youyo/bundr@v0.6.0
     with:
-      bundr-version: v0.5.2
+      bundr-version: v0.6.0
 ```
 
 ### Homebrew（推奨）
@@ -89,8 +89,7 @@ bundr exec --from ps:/myapp/ -- node app.js
 
 | Ref | バックエンド | 説明 |
 |-----|------------|------|
-| `ps:/path/to/key` | SSM Parameter Store (Standard) | 標準パラメータ（最大4KB）|
-| `psa:/path/to/key` | SSM Parameter Store (Advanced) | 拡張パラメータ（最大8KB）|
+| `ps:/path/to/key` | SSM Parameter Store | デフォルトは Standard tier。`--tier advanced` で最大 8KB |
 | `sm:secret-id` | Secrets Manager | シークレット（バージョン管理あり）|
 
 ## コマンドリファレンス

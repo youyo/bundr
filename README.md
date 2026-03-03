@@ -21,16 +21,16 @@ A CLI that unifies AWS Parameter Store and Secrets Manager.
 
 ```yaml
 steps:
-  - uses: youyo/bundr@v0.5
+  - uses: youyo/bundr@v0.6
 ```
 
 To pin to a specific version:
 
 ```yaml
 steps:
-  - uses: youyo/bundr@v0.5.2
+  - uses: youyo/bundr@v0.6.0
     with:
-      bundr-version: v0.5.2
+      bundr-version: v0.6.0
 ```
 
 ### Homebrew (recommended)
@@ -97,8 +97,7 @@ bundr put ps:/myapp/api_key --value s3cr3t --store raw --secure
 
 | Ref | Backend | Notes |
 |-----|---------|-------|
-| `ps:/path/to/key` | SSM Parameter Store (Standard) | Up to 4 KB |
-| `psa:/path/to/key` | SSM Parameter Store (Advanced) | Up to 8 KB |
+| `ps:/path/to/key` | SSM Parameter Store | Standard tier by default; use `--tier advanced` for up to 8 KB |
 | `sm:secret-id` | Secrets Manager | Versioned secrets |
 
 ## Recipes
@@ -124,10 +123,10 @@ Store to Secrets Manager:
 bundr put sm:myapp/api-key --value s3cr3t --store raw
 ```
 
-Encrypt with a specific KMS key:
+Encrypt with a specific KMS key (Advanced tier):
 
 ```bash
-bundr put psa:/app/token --value s3cr3t --store raw --kms-key-id alias/my-key
+bundr put ps:/app/token --value s3cr3t --store raw --tier advanced --kms-key-id alias/my-key
 ```
 
 Store a sensitive value as SSM SecureString:

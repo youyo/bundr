@@ -57,7 +57,7 @@ func TestLsCmd(t *testing.T) {
 			want:  []string{},
 		},
 		{
-			// L-03: --recursive なし → 直下のみ（サブパス除外）
+			// L-03: --recursive なし → 次レベルのみ（leaf + virtual directory）
 			id:   "L-03",
 			from: "ps:/app/",
 			setup: func(mb *backend.MockBackend) {
@@ -67,7 +67,23 @@ func TestLsCmd(t *testing.T) {
 			},
 			recursive: false,
 			want: []string{
-				"ps:/app/db_host",
+				"ps:/app/db_host", // leaf
+				"ps:/app/sub",     // virtual directory prefix
+			},
+		},
+		{
+			// L-06: ルート ps:/ → トップレベルディレクトリが返る
+			id:   "L-06",
+			from: "ps:/",
+			setup: func(mb *backend.MockBackend) {
+				ctx := context.Background()
+				_ = mb.Put(ctx, "ps:/app/key", backend.PutOptions{Value: "v1", StoreMode: tags.StoreModeRaw})
+				_ = mb.Put(ctx, "ps:/other/key2", backend.PutOptions{Value: "v2", StoreMode: tags.StoreModeRaw})
+			},
+			recursive: false,
+			want: []string{
+				"ps:/app",
+				"ps:/other",
 			},
 		},
 		{

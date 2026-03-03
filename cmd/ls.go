@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/youyo/bundr/internal/backend"
 )
@@ -13,7 +14,7 @@ import (
 // LsCmd represents the "ls" subcommand.
 type LsCmd struct {
 	From      string `arg:"" required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
-	Recursive bool   `name:"recursive" help:"List recursively (default: non-recursive)"`
+	Recursive bool   `name:"recursive" help:"List all parameters recursively (default: next-level view only)"`
 	Describe  bool   `name:"describe" help:"Show metadata as JSON array instead of refs"`
 
 	out io.Writer // for testing; nil means os.Stdout
@@ -47,7 +48,7 @@ func (c *LsCmd) Run(appCtx *Context) error {
 	}
 
 	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{
-		Recursive:    c.Recursive,
+		Recursive:    true, // 常に全取得（次レベル表示に必要）
 		SkipTagFetch: true,
 	})
 	if err != nil {
@@ -59,10 +60,44 @@ func (c *LsCmd) Run(appCtx *Context) error {
 		_ = appCtx.CacheStore.Write(string(ref.Type), toCacheEntries(entries))
 	}
 
-	// フル ref 形式（ps:/path/to/key）に変換してソート
-	refs := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		refs = append(refs, string(ref.Type)+":"+entry.Path)
+	var refs []string
+	if c.Recursive {
+		// --recursive: 全パラメータをフラット表示
+		refs = make([]string, 0, len(entries))
+		for _, entry := range entries {
+			refs = append(refs, string(ref.Type)+":"+entry.Path)
+		}
+	} else {
+		// デフォルト: 次レベルのみ（ディレクトリ表示）
+		// ref.Path == "" は SM の全シークレット（プレフィックスなし）
+		// ref.Path != "" は PS/SM のパスプレフィックス（末尾 / で正規化）
+		var normalizedPrefix string
+		if ref.Path != "" {
+			normalizedPrefix = strings.TrimRight(ref.Path, "/") + "/"
+		}
+		seen := make(map[string]bool)
+		refs = make([]string, 0)
+		for _, entry := range entries {
+			var rel string
+			if normalizedPrefix == "" {
+				rel = entry.Path
+			} else {
+				if !strings.HasPrefix(entry.Path, normalizedPrefix) {
+					continue
+				}
+				rel = strings.TrimPrefix(entry.Path, normalizedPrefix)
+			}
+			var key string
+			if idx := strings.Index(rel, "/"); idx == -1 {
+				key = string(ref.Type) + ":" + entry.Path
+			} else {
+				key = string(ref.Type) + ":" + normalizedPrefix + rel[:idx]
+			}
+			if !seen[key] {
+				seen[key] = true
+				refs = append(refs, key)
+			}
+		}
 	}
 	sort.Strings(refs)
 

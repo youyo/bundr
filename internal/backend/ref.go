@@ -14,6 +14,12 @@ const (
 	BackendTypeSM  BackendType = "sm"
 )
 
+// ValueType constants for PutOptions.ValueType.
+const (
+	ValueTypeString = "string"
+	ValueTypeSecure = "secure"
+)
+
 // Ref represents a parsed backend reference.
 type Ref struct {
 	Type BackendType

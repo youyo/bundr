@@ -52,7 +52,7 @@ func (b *PSBackend) Put(ctx context.Context, ref string, opts PutOptions) error 
 
 	// Determine parameter type
 	paramType := ssmtypes.ParameterTypeString
-	if opts.ValueType == "secure" {
+	if opts.ValueType == ValueTypeSecure {
 		paramType = ssmtypes.ParameterTypeSecureString
 	}
 

@@ -33,7 +33,7 @@ func (c *PutCmd) Run(appCtx *Context) error {
 	}
 
 	if c.Secure {
-		opts.ValueType = "secure"
+		opts.ValueType = backend.ValueTypeSecure
 	}
 
 	if err := b.Put(context.Background(), c.Ref, opts); err != nil {

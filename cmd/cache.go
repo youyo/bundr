@@ -8,6 +8,19 @@ import (
 	"github.com/youyo/bundr/internal/cache"
 )
 
+// toCacheEntries は ParameterEntry スライスを CacheEntry スライスに変換する。
+// 値（secret）は保存しない。
+func toCacheEntries(entries []backend.ParameterEntry) []cache.CacheEntry {
+	result := make([]cache.CacheEntry, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, cache.CacheEntry{
+			Path:      e.Path,
+			StoreMode: e.StoreMode,
+		})
+	}
+	return result
+}
+
 // CacheCmd は cache サブコマンドの Kong 構造体。
 type CacheCmd struct {
 	Refresh CacheRefreshCmd `cmd:"" help:"Refresh the local cache by fetching paths from AWS."`
@@ -58,18 +71,8 @@ func (c *CacheRefreshCmd) Run(appCtx *Context) error {
 		return fmt.Errorf("cache refresh: fetch parameters: %w", err)
 	}
 
-	// ParameterEntry を CacheEntry に変換（値は保存しない）
-	cacheEntries := make([]cache.CacheEntry, 0, len(entries))
-	for _, e := range entries {
-		cacheEntries = append(cacheEntries, cache.CacheEntry{
-			Path:      e.Path,
-			StoreMode: e.StoreMode,
-		})
-	}
-
-	// バックエンドタイプ名を取得（"ps", "psa"）
 	backendType := string(ref.Type)
-	if err := appCtx.CacheStore.Write(backendType, cacheEntries); err != nil {
+	if err := appCtx.CacheStore.Write(backendType, toCacheEntries(entries)); err != nil {
 		return fmt.Errorf("cache refresh: write cache: %w", err)
 	}
 

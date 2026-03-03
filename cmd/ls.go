@@ -8,7 +8,6 @@ import (
 	"sort"
 
 	"github.com/youyo/bundr/internal/backend"
-	"github.com/youyo/bundr/internal/cache"
 )
 
 // LsCmd represents the "ls" subcommand.
@@ -57,14 +56,7 @@ func (c *LsCmd) Run(appCtx *Context) error {
 
 	// コマンド実行後に即時キャッシュへ書き込む（Tab 補完の初回キャッシュミスを防ぐ）
 	if appCtx.CacheStore != nil {
-		cacheEntries := make([]cache.CacheEntry, 0, len(entries))
-		for _, e := range entries {
-			cacheEntries = append(cacheEntries, cache.CacheEntry{
-				Path:      e.Path,
-				StoreMode: e.StoreMode,
-			})
-		}
-		_ = appCtx.CacheStore.Write(string(ref.Type), cacheEntries)
+		_ = appCtx.CacheStore.Write(string(ref.Type), toCacheEntries(entries))
 	}
 
 	// フル ref 形式（ps:/path/to/key）に変換してソート

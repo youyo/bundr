@@ -2,5 +2,6 @@ bundr
 coverage.out
 *.out
 .claude/handover/
+dist/
 tmp/*
 tmp_*

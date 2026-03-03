@@ -58,3 +58,30 @@ jobs:
           args: release --snapshot --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-floating-tags:
+    name: Update floating version tags
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Update v{major} and v{major}.{minor} tags
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # v0.5.1 → MAJOR=v0, MINOR=v0.5
+          MAJOR=$(echo "${TAG}" | grep -oP '^v\d+')
+          MINOR=$(echo "${TAG}" | grep -oP '^v\d+\.\d+')
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -f "${MAJOR}" "${GITHUB_SHA}"
+          git tag -f "${MINOR}" "${GITHUB_SHA}"
+          git push -f origin "${MAJOR}" "${MINOR}"
+
+          echo "Updated tags: ${MAJOR}, ${MINOR} → ${TAG} (${GITHUB_SHA})"

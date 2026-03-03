@@ -1,0 +1,58 @@
+name: Test Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-action:
+    name: Test action (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup bundr (default)
+        uses: ./
+        id: setup
+      - name: Verify
+        run: |
+          bundr --help
+          echo "version: ${{ steps.setup.outputs.bundr-version }}"
+          test -n "${{ steps.setup.outputs.bundr-version }}"
+
+  test-specific-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          bundr-version: 'v0.4.8'
+      - run: bundr --help
+
+  test-install-sh:
+    name: Test install.sh (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash scripts/install.sh
+          ~/.local/bin/bundr --help
+      - name: Specific version
+        run: |
+          bash scripts/install.sh v0.4.8
+          ~/.local/bin/bundr --help
+      - name: Custom INSTALL_DIR
+        run: |
+          INSTALL_DIR=/tmp/bundr-test bash scripts/install.sh v0.4.8
+          /tmp/bundr-test/bundr --help

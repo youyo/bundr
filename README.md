@@ -17,6 +17,22 @@ A CLI that unifies AWS Parameter Store and Secrets Manager.
 
 ## Install
 
+### GitHub Actions
+
+```yaml
+steps:
+  - uses: youyo/bundr@v0.5
+```
+
+To pin to a specific version:
+
+```yaml
+steps:
+  - uses: youyo/bundr@v0.5.0
+    with:
+      bundr-version: v0.5.0
+```
+
 ### Homebrew (recommended)
 
 ```bash
@@ -34,20 +50,24 @@ go install github.com/youyo/bundr@latest
 Download from the [Releases page](https://github.com/youyo/bundr/releases):
 
 ```bash
+# One-liner (Linux/macOS)
+curl -sSfL https://raw.githubusercontent.com/youyo/bundr/main/scripts/install.sh | bash
+
+# Or manually:
 # macOS (Apple Silicon)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Darwin_arm64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_darwin_arm64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 
 # macOS (Intel)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Darwin_amd64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_darwin_amd64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 
 # Linux (x86_64)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Linux_amd64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_linux_amd64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 
 # Linux (ARM64)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Linux_arm64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_linux_arm64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 ```
 

@@ -9,6 +9,22 @@ AWS Parameter Store と Secrets Manager を統合して操作する Go CLI。
 
 ## インストール
 
+### GitHub Actions
+
+```yaml
+steps:
+  - uses: youyo/bundr@v0.5
+```
+
+特定バージョンを固定する場合:
+
+```yaml
+steps:
+  - uses: youyo/bundr@v0.5.0
+    with:
+      bundr-version: v0.5.0
+```
+
 ### Homebrew（推奨）
 
 ```bash
@@ -20,20 +36,24 @@ brew install youyo/tap/bundr
 [リリースページ](https://github.com/youyo/bundr/releases) からバイナリをダウンロード。
 
 ```bash
+# ワンライナー（Linux/macOS）
+curl -sSfL https://raw.githubusercontent.com/youyo/bundr/main/scripts/install.sh | bash
+
+# または手動インストール:
 # macOS (Apple Silicon)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Darwin_arm64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_darwin_arm64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 
 # macOS (Intel)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Darwin_amd64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_darwin_amd64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 
 # Linux (x86_64)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Linux_amd64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_linux_amd64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 
 # Linux (ARM64)
-curl -L https://github.com/youyo/bundr/releases/latest/download/bundr_Linux_arm64.tar.gz | tar xz
+curl -sSfL https://github.com/youyo/bundr/releases/latest/download/bundr_$(curl -sSf https://api.github.com/repos/youyo/bundr/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')_linux_arm64.tar.gz | tar xz
 sudo mv bundr /usr/local/bin/
 ```
 

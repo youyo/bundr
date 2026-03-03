@@ -12,7 +12,11 @@ INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 # バージョン解決
 VERSION="${1:-}"
 if [ -z "${VERSION}" ]; then
-  VERSION=$(curl -sSfL -H "Accept: application/vnd.github+json" \
+  CURL_OPTS=("-sSfL" "-H" "Accept: application/vnd.github+json")
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    CURL_OPTS+=("-H" "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  VERSION=$(curl "${CURL_OPTS[@]}" \
     "https://api.github.com/repos/${REPO}/releases/latest" \
     | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
 fi

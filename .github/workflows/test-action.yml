@@ -43,6 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bash scripts/install.sh
           ~/.local/bin/bundr --help
@@ -52,5 +54,5 @@ jobs:
           ~/.local/bin/bundr --help
       - name: Custom INSTALL_DIR
         run: |
-          INSTALL_DIR=/tmp/bundr-test bash scripts/install.sh
+          INSTALL_DIR=/tmp/bundr-test bash scripts/install.sh v0.4.8
           /tmp/bundr-test/bundr --help

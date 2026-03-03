@@ -15,6 +15,7 @@ import (
 type LsCmd struct {
 	From      string `arg:"" required:"" predictor:"prefix" help:"Source prefix (e.g. ps:/app/prod/)"`
 	Recursive bool   `name:"recursive" help:"List recursively (default: non-recursive)"`
+	Describe  bool   `name:"describe" help:"Show metadata as JSON array instead of refs"`
 
 	out io.Writer // for testing; nil means os.Stdout
 }
@@ -40,6 +41,10 @@ func (c *LsCmd) Run(appCtx *Context) error {
 	b, err := appCtx.BackendFactory(ref.Type)
 	if err != nil {
 		return fmt.Errorf("ls command failed: create backend: %w", err)
+	}
+
+	if c.Describe {
+		return c.runDescribe(context.Background(), b, ref)
 	}
 
 	entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{
@@ -74,4 +79,33 @@ func (c *LsCmd) Run(appCtx *Context) error {
 	}
 
 	return nil
+}
+
+// runDescribe outputs entries as a JSON array with "ref" + metadata fields.
+func (c *LsCmd) runDescribe(ctx context.Context, b backend.Backend, ref backend.Ref) error {
+	entries, err := b.GetByPrefix(ctx, ref.Path, backend.GetByPrefixOptions{
+		Recursive:       c.Recursive,
+		SkipTagFetch:    false,
+		IncludeMetadata: true,
+	})
+	if err != nil {
+		return fmt.Errorf("ls command failed: %w", err)
+	}
+
+	// Sort entries by path for deterministic output
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Path < entries[j].Path
+	})
+
+	result := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		m := make(map[string]any, len(entry.Metadata)+1)
+		m["ref"] = string(ref.Type) + ":" + entry.Path
+		for k, v := range entry.Metadata {
+			m[k] = v
+		}
+		result = append(result, m)
+	}
+
+	return printJSON(c.out, result)
 }

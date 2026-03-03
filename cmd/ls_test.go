@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -197,6 +198,94 @@ func TestLsCmd_WritesCache(t *testing.T) {
 	}
 	if got := len(mockStore.WriteCalls[0].Entries); got != 2 {
 		t.Errorf("entries count = %d, want 2", got)
+	}
+}
+
+// LS-D-01: ls --describe outputs valid JSON array with "ref" field
+func TestLsCmd_Describe_PS(t *testing.T) {
+	mb, appCtx := newLsTestContext(t)
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/db_host", backend.PutOptions{Value: "localhost", StoreMode: tags.StoreModeRaw})
+	_ = mb.Put(ctx, "ps:/app/db_port", backend.PutOptions{Value: "5432", StoreMode: tags.StoreModeRaw})
+
+	var buf bytes.Buffer
+	cmd := &LsCmd{From: "ps:/app/", Describe: true, out: &buf}
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// Output must be valid JSON array
+	var result []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("output is not valid JSON array: %v\noutput: %s", err, buf.String())
+	}
+	if len(result) != 2 {
+		t.Fatalf("got %d entries, want 2", len(result))
+	}
+	// Each entry must have "ref" field
+	for _, entry := range result {
+		if _, ok := entry["ref"]; !ok {
+			t.Errorf("entry missing 'ref' field: %v", entry)
+		}
+		// ref should start with "ps:"
+		ref, _ := entry["ref"].(string)
+		if !strings.HasPrefix(ref, "ps:") {
+			t.Errorf("ref = %q, want prefix %q", ref, "ps:")
+		}
+	}
+	// Sorted by path: db_host before db_port
+	ref0, _ := result[0]["ref"].(string)
+	ref1, _ := result[1]["ref"].(string)
+	if ref0 != "ps:/app/db_host" {
+		t.Errorf("result[0].ref = %q, want %q", ref0, "ps:/app/db_host")
+	}
+	if ref1 != "ps:/app/db_port" {
+		t.Errorf("result[1].ref = %q, want %q", ref1, "ps:/app/db_port")
+	}
+}
+
+// LS-D-EDGE-01: ls --describe with 0 entries outputs empty JSON array
+func TestLsCmd_Describe_Empty(t *testing.T) {
+	_, appCtx := newLsTestContext(t)
+
+	var buf bytes.Buffer
+	cmd := &LsCmd{From: "ps:/empty/", Describe: true, out: &buf}
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// Output must be valid JSON array (empty)
+	var result []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("output is not valid JSON array: %v\noutput: %s", err, buf.String())
+	}
+	if len(result) != 0 {
+		t.Errorf("got %d entries, want 0", len(result))
+	}
+}
+
+// LS-D-02: ls --describe with SM prefix outputs valid JSON array
+func TestLsCmd_Describe_SM(t *testing.T) {
+	mb, appCtx := newLsTestContext(t)
+	ctx := context.Background()
+	_ = mb.Put(ctx, "sm:partner-ops/api-key", backend.PutOptions{Value: "secret", StoreMode: tags.StoreModeRaw})
+
+	var buf bytes.Buffer
+	cmd := &LsCmd{From: "sm:partner-ops/", Describe: true, out: &buf}
+	if err := cmd.Run(appCtx); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	var result []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("output is not valid JSON array: %v\noutput: %s", err, buf.String())
+	}
+	if len(result) != 1 {
+		t.Fatalf("got %d entries, want 1", len(result))
+	}
+	ref, _ := result[0]["ref"].(string)
+	if ref != "sm:partner-ops/api-key" {
+		t.Errorf("ref = %q, want %q", ref, "sm:partner-ops/api-key")
 	}
 }
 

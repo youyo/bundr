@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"testing"
@@ -177,6 +178,110 @@ func TestGetCmd_InvalidRef(t *testing.T) {
 	err := cmd.Run(appCtx)
 	if err == nil {
 		t.Error("Run() expected error for invalid ref, got nil")
+	}
+}
+
+// GET-D-01: get --describe outputs valid JSON with metadata
+func TestGetCmd_Describe_PS(t *testing.T) {
+	mock := backend.NewMockBackend()
+	ctx := context.Background()
+
+	_ = mock.Put(ctx, "ps:/app/db_host", backend.PutOptions{
+		Value:     "localhost",
+		StoreMode: tags.StoreModeRaw,
+	})
+
+	appCtx := &Context{
+		BackendFactory: func(_ backend.BackendType) (backend.Backend, error) {
+			return mock, nil
+		},
+	}
+
+	cmd := &GetCmd{Ref: "ps:/app/db_host", Describe: true}
+
+	output := captureStdout(t, func() {
+		err := cmd.Run(appCtx)
+		if err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+	})
+
+	// Output must be valid JSON
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, output)
+	}
+
+	// MockBackend.Describe returns tags + Value
+	if result["Value"] != "localhost" {
+		t.Errorf("Value = %v, want %q", result["Value"], "localhost")
+	}
+}
+
+// GET-D-02: get --describe with SM ref outputs valid JSON
+func TestGetCmd_Describe_SM(t *testing.T) {
+	mock := backend.NewMockBackend()
+	ctx := context.Background()
+
+	_ = mock.Put(ctx, "sm:myapp/db", backend.PutOptions{
+		Value:     "mysecret",
+		StoreMode: tags.StoreModeRaw,
+	})
+
+	appCtx := &Context{
+		BackendFactory: func(_ backend.BackendType) (backend.Backend, error) {
+			return mock, nil
+		},
+	}
+
+	cmd := &GetCmd{Ref: "sm:myapp/db", Describe: true}
+
+	output := captureStdout(t, func() {
+		err := cmd.Run(appCtx)
+		if err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+	})
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, output)
+	}
+	if result["Value"] != "mysecret" {
+		t.Errorf("Value = %v, want %q", result["Value"], "mysecret")
+	}
+}
+
+// GET-D-EDGE-01: --describe takes precedence over --raw
+func TestGetCmd_Describe_TakesPrecedenceOverRaw(t *testing.T) {
+	mock := backend.NewMockBackend()
+	ctx := context.Background()
+
+	_ = mock.Put(ctx, "ps:/app/key", backend.PutOptions{
+		Value:     "val",
+		StoreMode: tags.StoreModeRaw,
+	})
+
+	appCtx := &Context{
+		BackendFactory: func(_ backend.BackendType) (backend.Backend, error) {
+			return mock, nil
+		},
+	}
+
+	// Both --describe and --raw: describe wins
+	cmd := &GetCmd{Ref: "ps:/app/key", Describe: true, Raw: true}
+
+	output := captureStdout(t, func() {
+		err := cmd.Run(appCtx)
+		if err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+	})
+
+	// Should be JSON (describe wins)
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output should be JSON when --describe is set, got: %s", output)
 	}
 }
 

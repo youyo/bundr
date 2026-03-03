@@ -13,6 +13,7 @@ type PutCmd struct {
 	Value  string `short:"v" required:"" help:"Value to store"`
 	Store  string `short:"s" default:"raw" enum:"raw,json" help:"Storage mode (raw|json)"`
 	Secure bool   `help:"Use SecureString (SSM Parameter Store only)"`
+	Tier   string `help:"Parameter Store tier override (standard|advanced). Omit to auto-detect existing tier." enum:"standard,advanced," default:""`
 }
 
 // Run executes the put command.
@@ -34,6 +35,20 @@ func (c *PutCmd) Run(appCtx *Context) error {
 
 	if c.Secure {
 		opts.ValueType = backend.ValueTypeSecure
+	}
+
+	// Propagate psa: prefix intent so MockBackend and future backends see it
+	if ref.AdvancedTier {
+		opts.AdvancedTier = true
+	}
+
+	switch c.Tier {
+	case "advanced":
+		opts.AdvancedTier = true
+		opts.TierExplicit = true
+	case "standard":
+		opts.AdvancedTier = false
+		opts.TierExplicit = true
 	}
 
 	if err := b.Put(context.Background(), c.Ref, opts); err != nil {

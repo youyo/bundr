@@ -18,6 +18,7 @@ type SSMClient interface {
 	GetParametersByPath(ctx context.Context, input *ssm.GetParametersByPathInput, optFns ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error)
 	AddTagsToResource(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error)
 	ListTagsForResource(ctx context.Context, input *ssm.ListTagsForResourceInput, optFns ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error)
+	DescribeParameters(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error)
 }
 
 // PSBackend implements Backend for SSM Parameter Store (ps: and psa: refs).
@@ -78,8 +79,8 @@ func (b *PSBackend) Put(ctx context.Context, ref string, opts PutOptions) error 
 		Overwrite: aws.Bool(true),
 	}
 
-	// Set tier for Advanced parameters
-	if parsed.Type == BackendTypePSA {
+	// Set tier (auto-detect existing tier when not explicitly specified)
+	if b.resolveTier(ctx, parsed, opts) == ssmtypes.ParameterTierAdvanced {
 		input.Tier = ssmtypes.ParameterTierAdvanced
 	}
 
@@ -263,4 +264,37 @@ func (b *PSBackend) Describe(ctx context.Context, ref string) (map[string]any, e
 		"LastModifiedDate": p.LastModifiedDate,
 	}
 	return result, nil
+}
+
+// resolveTier determines the SSM Parameter Store tier to use for a Put operation.
+//
+// Priority:
+//  1. opts.AdvancedTier=true or ref.AdvancedTier=true → Advanced
+//  2. opts.TierExplicit=true (--tier standard) → Standard (skip auto-detect)
+//  3. auto-detect: call DescribeParameters to check existing tier.
+//     NotFound or Standard → Standard; existing Advanced → keep Advanced.
+func (b *PSBackend) resolveTier(ctx context.Context, ref Ref, opts PutOptions) ssmtypes.ParameterTier {
+	if opts.AdvancedTier || ref.AdvancedTier {
+		return ssmtypes.ParameterTierAdvanced
+	}
+	if opts.TierExplicit {
+		return ssmtypes.ParameterTierStandard
+	}
+	// Auto-detect: use DescribeParameters to get the existing tier (Parameter.Tier is unavailable in GetParameter).
+	out, err := b.client.DescribeParameters(ctx, &ssm.DescribeParametersInput{
+		ParameterFilters: []ssmtypes.ParameterStringFilter{
+			{
+				Key:    aws.String("Name"),
+				Option: aws.String("Equals"),
+				Values: []string{ref.Path},
+			},
+		},
+	})
+	if err != nil || len(out.Parameters) == 0 {
+		return ssmtypes.ParameterTierStandard
+	}
+	if out.Parameters[0].Tier == ssmtypes.ParameterTierAdvanced {
+		return ssmtypes.ParameterTierAdvanced
+	}
+	return ssmtypes.ParameterTierStandard
 }

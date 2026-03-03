@@ -136,6 +136,109 @@ func TestPutCmd_RunSM(t *testing.T) {
 	}
 }
 
+func TestPutCmd_RunPSA(t *testing.T) {
+	mock := backend.NewMockBackend()
+	var requestedType backend.BackendType
+	factory := func(bt backend.BackendType) (backend.Backend, error) {
+		requestedType = bt
+		return mock, nil
+	}
+
+	cmd := &PutCmd{
+		Ref:   "psa:/app/test/ADVKEY",
+		Value: "adv-value",
+		Store: tags.StoreModeRaw,
+	}
+
+	appCtx := &Context{
+		Config:         &config.Config{},
+		BackendFactory: factory,
+	}
+
+	err := cmd.Run(appCtx)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// psa: normalizes to BackendTypePS in ParseRef
+	if requestedType != backend.BackendTypePS {
+		t.Errorf("BackendFactory received type %v, want %v", requestedType, backend.BackendTypePS)
+	}
+
+	if len(mock.PutCalls) != 1 {
+		t.Fatalf("expected 1 PutCall, got %d", len(mock.PutCalls))
+	}
+	call := mock.PutCalls[0]
+	if !call.Opts.AdvancedTier {
+		t.Error("PutOptions.AdvancedTier should be true for psa: ref")
+	}
+}
+
+func TestPutCmd_TierFlag(t *testing.T) {
+	tests := []struct {
+		name             string
+		tier             string
+		wantAdvancedTier bool
+		wantTierExplicit bool
+	}{
+		{
+			name:             "tier advanced",
+			tier:             "advanced",
+			wantAdvancedTier: true,
+			wantTierExplicit: true,
+		},
+		{
+			name:             "tier standard",
+			tier:             "standard",
+			wantAdvancedTier: false,
+			wantTierExplicit: true,
+		},
+		{
+			name:             "tier empty (auto-detect)",
+			tier:             "",
+			wantAdvancedTier: false,
+			wantTierExplicit: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := backend.NewMockBackend()
+			factory := func(_ backend.BackendType) (backend.Backend, error) {
+				return mock, nil
+			}
+
+			cmd := &PutCmd{
+				Ref:   "ps:/app/test/KEY",
+				Value: "hello",
+				Store: tags.StoreModeRaw,
+				Tier:  tt.tier,
+			}
+
+			appCtx := &Context{
+				Config:         &config.Config{},
+				BackendFactory: factory,
+			}
+
+			err := cmd.Run(appCtx)
+			if err != nil {
+				t.Fatalf("Run() error: %v", err)
+			}
+
+			if len(mock.PutCalls) != 1 {
+				t.Fatalf("expected 1 PutCall, got %d", len(mock.PutCalls))
+			}
+			call := mock.PutCalls[0]
+			if call.Opts.AdvancedTier != tt.wantAdvancedTier {
+				t.Errorf("AdvancedTier = %v, want %v", call.Opts.AdvancedTier, tt.wantAdvancedTier)
+			}
+			if call.Opts.TierExplicit != tt.wantTierExplicit {
+				t.Errorf("TierExplicit = %v, want %v", call.Opts.TierExplicit, tt.wantTierExplicit)
+			}
+		})
+	}
+}
+
 func TestPutCmd_RunInvalidRef(t *testing.T) {
 	factory := func(_ backend.BackendType) (backend.Backend, error) {
 		return backend.NewMockBackend(), nil

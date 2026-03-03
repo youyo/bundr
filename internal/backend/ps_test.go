@@ -19,6 +19,7 @@ type mockSSMClient struct {
 	getParametersByPathFn   func(ctx context.Context, input *ssm.GetParametersByPathInput, optFns ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error)
 	addTagsToResourceFn     func(ctx context.Context, input *ssm.AddTagsToResourceInput, optFns ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error)
 	listTagsForResourceFn   func(ctx context.Context, input *ssm.ListTagsForResourceInput, optFns ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error)
+	describeParametersFn    func(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error)
 
 	// Call recording fields for verifying call sequences
 	putParameterCalls      []*ssm.PutParameterInput
@@ -31,6 +32,9 @@ func (m *mockSSMClient) PutParameter(ctx context.Context, input *ssm.PutParamete
 }
 
 func (m *mockSSMClient) GetParameter(ctx context.Context, input *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
+	if m.getParameterFn == nil {
+		return nil, fmt.Errorf("ParameterNotFound")
+	}
 	return m.getParameterFn(ctx, input, optFns...)
 }
 
@@ -48,6 +52,14 @@ func (m *mockSSMClient) AddTagsToResource(ctx context.Context, input *ssm.AddTag
 
 func (m *mockSSMClient) ListTagsForResource(ctx context.Context, input *ssm.ListTagsForResourceInput, optFns ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
 	return m.listTagsForResourceFn(ctx, input, optFns...)
+}
+
+func (m *mockSSMClient) DescribeParameters(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
+	if m.describeParametersFn == nil {
+		// Default: parameter not found (new parameter → Standard tier)
+		return &ssm.DescribeParametersOutput{Parameters: nil}, nil
+	}
+	return m.describeParametersFn(ctx, input, optFns...)
 }
 
 func TestPSBackend_PutRaw(t *testing.T) {
@@ -178,7 +190,9 @@ func TestPSBackend_PutSecureString(t *testing.T) {
 	}
 }
 
-func TestPSBackend_PutAdvancedTier(t *testing.T) {
+// TestPSBackend_PutAdvancedTier_PSAPrefix verifies that psa: prefix still sets Advanced tier
+// (backward compat: psa: normalizes to BackendTypePS + AdvancedTier=true).
+func TestPSBackend_PutAdvancedTier_PSAPrefix(t *testing.T) {
 	ctx := context.Background()
 	var capturedInput *ssm.PutParameterInput
 
@@ -203,6 +217,155 @@ func TestPSBackend_PutAdvancedTier(t *testing.T) {
 
 	if capturedInput.Tier != ssmtypes.ParameterTierAdvanced {
 		t.Errorf("Tier = %v, want %v", capturedInput.Tier, ssmtypes.ParameterTierAdvanced)
+	}
+}
+
+// TestPSBackend_PutAdvancedTier_OptsFlag verifies that PutOptions.AdvancedTier=true sets Advanced tier.
+func TestPSBackend_PutAdvancedTier_OptsFlag(t *testing.T) {
+	ctx := context.Background()
+	var capturedInput *ssm.PutParameterInput
+
+	client := &mockSSMClient{
+		putParameterFn: func(_ context.Context, input *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
+			capturedInput = input
+			return &ssm.PutParameterOutput{}, nil
+		},
+		addTagsToResourceFn: func(_ context.Context, _ *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+			return &ssm.AddTagsToResourceOutput{}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	err := backend.Put(ctx, "ps:/app/test/KEY", PutOptions{
+		Value:        "hello",
+		StoreMode:    tags.StoreModeRaw,
+		AdvancedTier: true,
+		TierExplicit: true,
+	})
+	if err != nil {
+		t.Fatalf("Put() error: %v", err)
+	}
+
+	if capturedInput.Tier != ssmtypes.ParameterTierAdvanced {
+		t.Errorf("Tier = %v, want %v", capturedInput.Tier, ssmtypes.ParameterTierAdvanced)
+	}
+}
+
+// TestPSBackend_PutAutoDetect_ExistingAdvanced verifies that an existing Advanced param
+// is kept Advanced when ps: is used without explicit --tier.
+func TestPSBackend_PutAutoDetect_ExistingAdvanced(t *testing.T) {
+	ctx := context.Background()
+	var capturedInput *ssm.PutParameterInput
+
+	client := &mockSSMClient{
+		describeParametersFn: func(_ context.Context, _ *ssm.DescribeParametersInput, _ ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
+			return &ssm.DescribeParametersOutput{
+				Parameters: []ssmtypes.ParameterMetadata{
+					{
+						Name: aws.String("/app/test/KEY"),
+						Tier: ssmtypes.ParameterTierAdvanced,
+					},
+				},
+			}, nil
+		},
+		putParameterFn: func(_ context.Context, input *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
+			capturedInput = input
+			return &ssm.PutParameterOutput{}, nil
+		},
+		addTagsToResourceFn: func(_ context.Context, _ *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+			return &ssm.AddTagsToResourceOutput{}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	err := backend.Put(ctx, "ps:/app/test/KEY", PutOptions{
+		Value:     "new-value",
+		StoreMode: tags.StoreModeRaw,
+	})
+	if err != nil {
+		t.Fatalf("Put() error: %v", err)
+	}
+
+	// auto-detect should preserve Advanced tier
+	if capturedInput.Tier != ssmtypes.ParameterTierAdvanced {
+		t.Errorf("Tier = %v, want %v (auto-detect should keep Advanced)", capturedInput.Tier, ssmtypes.ParameterTierAdvanced)
+	}
+}
+
+// TestPSBackend_PutAutoDetect_NewParam verifies that a new parameter defaults to Standard tier.
+func TestPSBackend_PutAutoDetect_NewParam(t *testing.T) {
+	ctx := context.Background()
+	var capturedInput *ssm.PutParameterInput
+
+	client := &mockSSMClient{
+		// getParameterFn returns nil (ParameterNotFound) by default
+		putParameterFn: func(_ context.Context, input *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
+			capturedInput = input
+			return &ssm.PutParameterOutput{}, nil
+		},
+		addTagsToResourceFn: func(_ context.Context, _ *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+			return &ssm.AddTagsToResourceOutput{}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	err := backend.Put(ctx, "ps:/app/test/NEWKEY", PutOptions{
+		Value:     "hello",
+		StoreMode: tags.StoreModeRaw,
+	})
+	if err != nil {
+		t.Fatalf("Put() error: %v", err)
+	}
+
+	// new param → Standard (no tier specified in input means Standard)
+	if capturedInput.Tier == ssmtypes.ParameterTierAdvanced {
+		t.Errorf("Tier = %v, want Standard for new param", capturedInput.Tier)
+	}
+}
+
+// TestPSBackend_PutTierExplicitStandard verifies that --tier standard skips auto-detect
+// even when existing param is Advanced.
+func TestPSBackend_PutTierExplicitStandard(t *testing.T) {
+	ctx := context.Background()
+	describeParametersCalled := 0
+	var capturedInput *ssm.PutParameterInput
+
+	client := &mockSSMClient{
+		describeParametersFn: func(_ context.Context, _ *ssm.DescribeParametersInput, _ ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
+			describeParametersCalled++
+			return &ssm.DescribeParametersOutput{
+				Parameters: []ssmtypes.ParameterMetadata{
+					{Tier: ssmtypes.ParameterTierAdvanced},
+				},
+			}, nil
+		},
+		putParameterFn: func(_ context.Context, input *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
+			capturedInput = input
+			return &ssm.PutParameterOutput{}, nil
+		},
+		addTagsToResourceFn: func(_ context.Context, _ *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
+			return &ssm.AddTagsToResourceOutput{}, nil
+		},
+	}
+
+	backend := NewPSBackend(client)
+	err := backend.Put(ctx, "ps:/app/test/KEY", PutOptions{
+		Value:        "hello",
+		StoreMode:    tags.StoreModeRaw,
+		AdvancedTier: false,
+		TierExplicit: true, // --tier standard
+	})
+	if err != nil {
+		t.Fatalf("Put() error: %v", err)
+	}
+
+	// TierExplicit=true skips auto-detect → no DescribeParameters call
+	if describeParametersCalled != 0 {
+		t.Errorf("DescribeParameters called %d times, want 0 (TierExplicit skips auto-detect)", describeParametersCalled)
+	}
+	// Standard tier (zero value, not Advanced)
+	if capturedInput.Tier == ssmtypes.ParameterTierAdvanced {
+		t.Errorf("Tier = %v, want Standard when --tier standard is explicit", capturedInput.Tier)
 	}
 }
 

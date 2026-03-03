@@ -6,12 +6,11 @@ import (
 
 func TestParseRef(t *testing.T) {
 	tests := []struct {
-		name             string
-		input            string
-		wantType         BackendType
-		wantPath         string
-		wantAdvancedTier bool
-		wantErr          bool
+		name     string
+		input    string
+		wantType BackendType
+		wantPath string
+		wantErr  bool
 	}{
 		{
 			name:     "ps prefix",
@@ -20,12 +19,10 @@ func TestParseRef(t *testing.T) {
 			wantPath: "/app/prod/DB_HOST",
 		},
 		{
-			// psa: is a backward-compat alias; normalizes to BackendTypePS + AdvancedTier=true
-			name:             "psa prefix",
-			input:            "psa:/app/prod/DB_HOST",
-			wantType:         BackendTypePS,
-			wantPath:         "/app/prod/DB_HOST",
-			wantAdvancedTier: true,
+			// psa: is no longer supported
+			name:    "psa prefix",
+			input:   "psa:/app/prod/DB_HOST",
+			wantErr: true,
 		},
 		{
 			name:     "sm prefix",
@@ -83,9 +80,6 @@ func TestParseRef(t *testing.T) {
 			}
 			if ref.Path != tt.wantPath {
 				t.Errorf("ParseRef(%q).Path = %q, want %q", tt.input, ref.Path, tt.wantPath)
-			}
-			if ref.AdvancedTier != tt.wantAdvancedTier {
-				t.Errorf("ParseRef(%q).AdvancedTier = %v, want %v", tt.input, ref.AdvancedTier, tt.wantAdvancedTier)
 			}
 		})
 	}

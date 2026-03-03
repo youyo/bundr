@@ -173,11 +173,11 @@ func TestExecCmd(t *testing.T) {
 		},
 		{
 			id:   "R-06",
-			from: []string{"psa:/app/prod/"},
+			from: []string{"ps:/app/prod/"},
 			args: []string{"env"},
 			setup: func(mb *backend.MockBackend) {
 				ctx := context.Background()
-				_ = mb.Put(ctx, "psa:/app/prod/SECRET_KEY", backend.PutOptions{Value: "abc123", StoreMode: tags.StoreModeRaw})
+				_ = mb.Put(ctx, "ps:/app/prod/SECRET_KEY", backend.PutOptions{Value: "abc123", StoreMode: tags.StoreModeRaw})
 			},
 			wantEnv: map[string]string{
 				"SECRET_KEY": "abc123",

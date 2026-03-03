@@ -47,7 +47,7 @@ func (c *JsonizeCmd) Run(appCtx *Context) error {
 			return fmt.Errorf("jsonize command failed: invalid frompath ref: %w", err)
 		}
 		if ref.Type == backend.BackendTypeSM {
-			return fmt.Errorf("jsonize command failed: --frompath sm: backend is not supported (use ps: or psa:)")
+			return fmt.Errorf("jsonize command failed: --frompath sm: backend is not supported (use ps:)")
 		}
 		froms = append(froms, parsedFrom{ref: ref, rawRef: fp})
 	}

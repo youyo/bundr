@@ -190,36 +190,6 @@ func TestPSBackend_PutSecureString(t *testing.T) {
 	}
 }
 
-// TestPSBackend_PutAdvancedTier_PSAPrefix verifies that psa: prefix still sets Advanced tier
-// (backward compat: psa: normalizes to BackendTypePS + AdvancedTier=true).
-func TestPSBackend_PutAdvancedTier_PSAPrefix(t *testing.T) {
-	ctx := context.Background()
-	var capturedInput *ssm.PutParameterInput
-
-	client := &mockSSMClient{
-		putParameterFn: func(_ context.Context, input *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
-			capturedInput = input
-			return &ssm.PutParameterOutput{}, nil
-		},
-		addTagsToResourceFn: func(_ context.Context, _ *ssm.AddTagsToResourceInput, _ ...func(*ssm.Options)) (*ssm.AddTagsToResourceOutput, error) {
-			return &ssm.AddTagsToResourceOutput{}, nil
-		},
-	}
-
-	backend := NewPSBackend(client)
-	err := backend.Put(ctx, "psa:/app/test/KEY", PutOptions{
-		Value:     "hello",
-		StoreMode: tags.StoreModeRaw,
-	})
-	if err != nil {
-		t.Fatalf("Put() error: %v", err)
-	}
-
-	if capturedInput.Tier != ssmtypes.ParameterTierAdvanced {
-		t.Errorf("Tier = %v, want %v", capturedInput.Tier, ssmtypes.ParameterTierAdvanced)
-	}
-}
-
 // TestPSBackend_PutAdvancedTier_OptsFlag verifies that PutOptions.AdvancedTier=true sets Advanced tier.
 func TestPSBackend_PutAdvancedTier_OptsFlag(t *testing.T) {
 	ctx := context.Background()

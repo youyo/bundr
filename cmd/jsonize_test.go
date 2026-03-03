@@ -387,19 +387,19 @@ func TestJsonizeCmdSave(t *testing.T) {
 		}
 	})
 
-	t.Run("JSave-05-psa", func(t *testing.T) {
+	t.Run("JSave-05-ps-advanced", func(t *testing.T) {
 		mb, appCtx := newJsonizeTestContext(t)
 		ctx := context.Background()
-		_ = mb.Put(ctx, "psa:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
+		_ = mb.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{Value: "localhost", StoreMode: "raw"})
 
-		cmd := setupJsonizeSaveCmd("psa:/app/prod/", "psa:/app/config")
+		cmd := setupJsonizeSaveCmd("ps:/app/prod/", "ps:/app/config")
 		if err := cmd.Run(appCtx); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		putCall := findTargetPutCall(mb, "psa:/app/config")
+		putCall := findTargetPutCall(mb, "ps:/app/config")
 		if putCall == nil {
-			t.Fatal("expected Put call for psa:/app/config, not found")
+			t.Fatal("expected Put call for ps:/app/config, not found")
 		}
 	})
 

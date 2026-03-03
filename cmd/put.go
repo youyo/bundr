@@ -37,11 +37,6 @@ func (c *PutCmd) Run(appCtx *Context) error {
 		opts.ValueType = backend.ValueTypeSecure
 	}
 
-	// Propagate psa: prefix intent so MockBackend and future backends see it
-	if ref.AdvancedTier {
-		opts.AdvancedTier = true
-	}
-
 	switch c.Tier {
 	case "advanced":
 		opts.AdvancedTier = true

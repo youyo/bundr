@@ -136,44 +136,6 @@ func TestPutCmd_RunSM(t *testing.T) {
 	}
 }
 
-func TestPutCmd_RunPSA(t *testing.T) {
-	mock := backend.NewMockBackend()
-	var requestedType backend.BackendType
-	factory := func(bt backend.BackendType) (backend.Backend, error) {
-		requestedType = bt
-		return mock, nil
-	}
-
-	cmd := &PutCmd{
-		Ref:   "psa:/app/test/ADVKEY",
-		Value: "adv-value",
-		Store: tags.StoreModeRaw,
-	}
-
-	appCtx := &Context{
-		Config:         &config.Config{},
-		BackendFactory: factory,
-	}
-
-	err := cmd.Run(appCtx)
-	if err != nil {
-		t.Fatalf("Run() error: %v", err)
-	}
-
-	// psa: normalizes to BackendTypePS in ParseRef
-	if requestedType != backend.BackendTypePS {
-		t.Errorf("BackendFactory received type %v, want %v", requestedType, backend.BackendTypePS)
-	}
-
-	if len(mock.PutCalls) != 1 {
-		t.Fatalf("expected 1 PutCall, got %d", len(mock.PutCalls))
-	}
-	call := mock.PutCalls[0]
-	if !call.Opts.AdvancedTier {
-		t.Error("PutOptions.AdvancedTier should be true for psa: ref")
-	}
-}
-
 func TestPutCmd_TierFlag(t *testing.T) {
 	tests := []struct {
 		name             string

@@ -21,9 +21,8 @@ const (
 
 // Ref represents a parsed backend reference.
 type Ref struct {
-	Type         BackendType
-	Path         string
-	AdvancedTier bool // true when psa: prefix was used; ensures Advanced tier on Put
+	Type BackendType
+	Path string
 }
 
 // ParseRef parses a ref string (e.g. "ps:/app/key", "sm:secret-name") into a Ref.
@@ -34,7 +33,7 @@ func ParseRef(raw string) (Ref, error) {
 
 	idx := strings.Index(raw, ":")
 	if idx < 0 {
-		return Ref{}, fmt.Errorf("invalid ref %q: missing prefix (expected ps:, psa:, or sm:)", raw)
+		return Ref{}, fmt.Errorf("invalid ref %q: missing prefix (expected ps: or sm:)", raw)
 	}
 
 	prefix := raw[:idx]
@@ -47,11 +46,7 @@ func ParseRef(raw string) (Ref, error) {
 		}
 		return Ref{Type: BackendTypePS, Path: path}, nil
 	case "psa":
-		// psa: is an alias for ps: with Advanced tier; normalize to BackendTypePS
-		if path == "" {
-			return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)
-		}
-		return Ref{Type: BackendTypePS, Path: path, AdvancedTier: true}, nil
+		return Ref{}, fmt.Errorf("psa: prefix is no longer supported; use ps: with --tier advanced instead")
 	case "sm":
 		if path == "" {
 			return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)

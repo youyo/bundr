@@ -12,7 +12,7 @@ import (
 	"github.com/youyo/bundr/internal/cache"
 )
 
-// NewRefPredictor は ref-style 補完（ps:/path..., psa:/path..., sm:name...）の
+// NewRefPredictor は ref-style 補完（ps:/path..., sm:name...）の
 // complete.Predictor を返す。main.go から kongplete.WithPredictor に渡す用途。
 func NewRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory BackendFactory) complete.Predictor {
 	fn := newRefPredictor(cacheStore, bgLauncher, factory)
@@ -21,7 +21,7 @@ func NewRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory Back
 	})
 }
 
-// NewPrefixPredictor は prefix-style 補完（ps:/prefix, psa:/prefix）の
+// NewPrefixPredictor は prefix-style 補完（ps:/prefix）の
 // complete.Predictor を返す。main.go から kongplete.WithPredictor に渡す用途。
 func NewPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory BackendFactory) complete.Predictor {
 	fn := newPrefixPredictor(cacheStore, bgLauncher, factory)
@@ -112,9 +112,9 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory Back
 		// 1. prefix からバックエンドタイプを判定
 		ref, err := backend.ParseRef(prefix)
 		if err != nil {
-			// "sm:", "ps:", "psa:" — パスなしのバックエンドプレフィックス
+			// "sm:", "ps:" — パスなしのバックエンドプレフィックス
 			// ParseRef は空パスを拒否するため、補完時は特別扱いする
-			if prefix == "sm:" || prefix == "ps:" || prefix == "psa:" {
+			if prefix == "sm:" || prefix == "ps:" {
 				btStr := strings.TrimSuffix(prefix, ":")
 				bgArg := makeBGArg(btStr)
 				entries, readErr := cacheStore.Read(btStr)
@@ -171,16 +171,16 @@ func newRefPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory Back
 // newPrefixPredictor は prefix-style 補完の内部関数（テスト用に cmd パッケージ内でアクセス可能）。
 func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory BackendFactory) func(string) []string {
 	return func(prefix string) []string {
-		// 空文字（全バックエンド）の場合は ps:/psa:/sm: 全パスを返す
+		// 空文字（全バックエンド）の場合は ps:/sm: 全パスを返す
 		if prefix == "" {
 			var candidates []string
-			for _, backendType := range []string{"ps", "psa", "sm"} {
+			for _, backendType := range []string{"ps", "sm"} {
 				refreshArg := makeBGArg(backendType)
 
 				entries, err := cacheStore.Read(backendType)
 				if err == cache.ErrCacheNotFound {
 					_ = bgLauncher.Launch(os.Args[0], "cache", "refresh", refreshArg)
-					// sm は空パス、ps/psa は "/" でリアルタイム取得
+					// sm は空パス、ps は "/" でリアルタイム取得
 					var livePath string
 					if backendType != "sm" {
 						livePath = "/"
@@ -206,9 +206,9 @@ func newPrefixPredictor(cacheStore cache.Store, bgLauncher BGLauncher, factory B
 		// 通常の prefix 指定
 		ref, err := backend.ParseRef(prefix)
 		if err != nil {
-			// "sm:", "ps:", "psa:" — パスなしのバックエンドプレフィックス
+			// "sm:", "ps:" — パスなしのバックエンドプレフィックス
 			// ParseRef は空パスを拒否するため、補完時は特別扱いする
-			if prefix == "sm:" || prefix == "ps:" || prefix == "psa:" {
+			if prefix == "sm:" || prefix == "ps:" {
 				btStr := strings.TrimSuffix(prefix, ":")
 				bgArg := makeBGArg(btStr)
 				entries, readErr := cacheStore.Read(btStr)

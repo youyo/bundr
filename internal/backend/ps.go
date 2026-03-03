@@ -21,7 +21,7 @@ type SSMClient interface {
 	DescribeParameters(ctx context.Context, input *ssm.DescribeParametersInput, optFns ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error)
 }
 
-// PSBackend implements Backend for SSM Parameter Store (ps: and psa: refs).
+// PSBackend implements Backend for SSM Parameter Store (ps: refs).
 type PSBackend struct {
 	client SSMClient
 }
@@ -269,12 +269,12 @@ func (b *PSBackend) Describe(ctx context.Context, ref string) (map[string]any, e
 // resolveTier determines the SSM Parameter Store tier to use for a Put operation.
 //
 // Priority:
-//  1. opts.AdvancedTier=true or ref.AdvancedTier=true → Advanced
+//  1. opts.AdvancedTier=true (--tier advanced) → Advanced
 //  2. opts.TierExplicit=true (--tier standard) → Standard (skip auto-detect)
 //  3. auto-detect: call DescribeParameters to check existing tier.
 //     NotFound or Standard → Standard; existing Advanced → keep Advanced.
 func (b *PSBackend) resolveTier(ctx context.Context, ref Ref, opts PutOptions) ssmtypes.ParameterTier {
-	if opts.AdvancedTier || ref.AdvancedTier {
+	if opts.AdvancedTier {
 		return ssmtypes.ParameterTierAdvanced
 	}
 	if opts.TierExplicit {

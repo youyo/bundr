@@ -181,11 +181,11 @@ func TestExportCmd(t *testing.T) {
 		},
 		{
 			id:     "E-11",
-			from:   "psa:/app/prod/",
+			from:   "ps:/app/prod/",
 			format: "shell",
 			setup: func(mb *backend.MockBackend) {
 				ctx := context.Background()
-				_ = mb.Put(ctx, "psa:/app/prod/KEY", backend.PutOptions{Value: "val", StoreMode: tags.StoreModeRaw})
+				_ = mb.Put(ctx, "ps:/app/prod/KEY", backend.PutOptions{Value: "val", StoreMode: tags.StoreModeRaw})
 			},
 			want: []string{
 				"export KEY='val'",

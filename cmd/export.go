@@ -33,7 +33,7 @@ func buildVars(ctx context.Context, appCtx *Context, opts VarsBuildOptions) (map
 	}
 
 	if ref.Type == backend.BackendTypeSM {
-		return nil, fmt.Errorf("sm: backend is not supported (use ps: or psa:)")
+		return nil, fmt.Errorf("sm: backend is not supported (use ps:)")
 	}
 
 	b, err := appCtx.BackendFactory(ref.Type)

@@ -170,15 +170,12 @@ func TestRefPredictorBGRefreshNeeded(t *testing.T) {
 	}
 }
 
-// pred-005: prefix="" (空文字) → ps:/psa: 両方のパスを返す
+// pred-005: prefix="" (空文字) → ps: のパスを返す
 func TestPrefixPredictorEmpty(t *testing.T) {
 	store := &TestMockStore{
 		ReadFunc: func(backendType string) ([]cache.CacheEntry, error) {
 			if backendType == "ps" {
 				return []cache.CacheEntry{{Path: "/app/prod/DB_HOST", StoreMode: "raw"}}, nil
-			}
-			if backendType == "psa" {
-				return []cache.CacheEntry{{Path: "/app/advanced/API_KEY", StoreMode: "json"}}, nil
 			}
 			return nil, cache.ErrCacheNotFound
 		},
@@ -195,19 +192,15 @@ func TestPrefixPredictorEmpty(t *testing.T) {
 		t.Fatal("expected non-empty candidates for empty prefix")
 	}
 
-	// ps: と psa: の両方が含まれているはず
+	// ps: が含まれているはず
 	psFound := false
-	psaFound := false
 	for _, c := range candidates {
 		if strings.HasPrefix(c, "ps:/") {
 			psFound = true
 		}
-		if strings.HasPrefix(c, "psa:/") {
-			psaFound = true
-		}
 	}
-	if !psFound || !psaFound {
-		t.Errorf("expected both ps: and psa: candidates, got %v", candidates)
+	if !psFound {
+		t.Errorf("expected ps: candidates, got %v", candidates)
 	}
 }
 

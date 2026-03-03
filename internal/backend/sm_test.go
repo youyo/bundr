@@ -19,8 +19,10 @@ type mockSMClient struct {
 }
 
 type mockSecret struct {
-	value string
-	tags  []smtypes.Tag
+	value     string
+	tags      []smtypes.Tag
+	arn       string
+	versionId string
 }
 
 func newMockSMClient() *mockSMClient {
@@ -62,6 +64,8 @@ func (m *mockSMClient) GetSecretValue(ctx context.Context, input *secretsmanager
 	return &secretsmanager.GetSecretValueOutput{
 		SecretString: aws.String(secret.value),
 		Name:         aws.String(name),
+		ARN:          aws.String(secret.arn),
+		VersionId:    aws.String(secret.versionId),
 	}, nil
 }
 
@@ -99,6 +103,7 @@ func (m *mockSMClient) ListSecrets(ctx context.Context, input *secretsmanager.Li
 		}
 		list = append(list, smtypes.SecretListEntry{
 			Name: aws.String(name),
+			ARN:  aws.String(s.arn),
 			Tags: s.tags,
 		})
 	}
@@ -501,6 +506,115 @@ func TestSMBackend_GetByPrefix_StoreMode(t *testing.T) {
 	}
 	if entries[0].StoreMode != tags.StoreModeJSON {
 		t.Errorf("StoreMode = %q, want %q", entries[0].StoreMode, tags.StoreModeJSON)
+	}
+}
+
+// SM-D-01: Describe returns Name, Value, ARN, VersionId, and date fields
+func TestSMBackendDescribe(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	client.secrets["myapp/db"] = &mockSecret{
+		value:     "mysecret",
+		arn:       "arn:aws:secretsmanager:ap-northeast-1:123456789:secret:myapp/db-abc123",
+		versionId: "abc-123-xyz",
+		tags: mapToSMTags(map[string]string{
+			tags.TagCLI:       tags.TagCLIValue,
+			tags.TagStoreMode: tags.StoreModeRaw,
+			tags.TagSchema:    tags.TagSchemaValue,
+		}),
+	}
+
+	result, err := b.Describe(ctx, "sm:myapp/db")
+	if err != nil {
+		t.Fatalf("Describe() error: %v", err)
+	}
+
+	if result["Name"] != "myapp/db" {
+		t.Errorf("Name = %v, want %q", result["Name"], "myapp/db")
+	}
+	if result["Value"] != "mysecret" {
+		t.Errorf("Value = %v, want %q", result["Value"], "mysecret")
+	}
+	if result["ARN"] != "arn:aws:secretsmanager:ap-northeast-1:123456789:secret:myapp/db-abc123" {
+		t.Errorf("ARN = %v, want expected ARN", result["ARN"])
+	}
+	if result["VersionId"] != "abc-123-xyz" {
+		t.Errorf("VersionId = %v, want %q", result["VersionId"], "abc-123-xyz")
+	}
+	// Date fields should be present (nil is OK for mock)
+	for _, key := range []string{"CreatedDate", "LastAccessedDate", "LastRotatedDate"} {
+		if _, ok := result[key]; !ok {
+			t.Errorf("%s key missing from result", key)
+		}
+	}
+}
+
+// SM-D-ERR-01: Describe with nonexistent secret returns error
+func TestSMBackendDescribe_NotFound(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	_, err := b.Describe(ctx, "sm:nonexistent")
+	if err == nil {
+		t.Fatal("Describe() expected error for nonexistent secret, got nil")
+	}
+	if !strings.Contains(err.Error(), "get secret value") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "get secret value")
+	}
+}
+
+// SM-GB-D-01: GetByPrefix with IncludeMetadata=true populates Metadata
+func TestSMBackend_GetByPrefix_IncludeMetadata(t *testing.T) {
+	ctx := context.Background()
+	client := newMockSMClient()
+	b := NewSMBackend(client)
+
+	client.secrets["partner-ops/api-key"] = &mockSecret{
+		value: "v1",
+		arn:   "arn:aws:secretsmanager:region:123:secret:partner-ops/api-key",
+		tags: mapToSMTags(map[string]string{
+			tags.TagCLI:       tags.TagCLIValue,
+			tags.TagStoreMode: tags.StoreModeRaw,
+			tags.TagSchema:    tags.TagSchemaValue,
+		}),
+	}
+	client.secrets["partner-ops/db-pass"] = &mockSecret{
+		value: "v2",
+		arn:   "arn:aws:secretsmanager:region:123:secret:partner-ops/db-pass",
+		tags: mapToSMTags(map[string]string{
+			tags.TagCLI:       tags.TagCLIValue,
+			tags.TagStoreMode: tags.StoreModeRaw,
+			tags.TagSchema:    tags.TagSchemaValue,
+		}),
+	}
+
+	entries, err := b.GetByPrefix(ctx, "partner-ops/", GetByPrefixOptions{
+		Recursive:       true,
+		IncludeMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	for _, e := range entries {
+		if e.Metadata == nil {
+			t.Errorf("entry %s: Metadata is nil, want non-nil", e.Path)
+			continue
+		}
+		if _, ok := e.Metadata["ARN"]; !ok {
+			t.Errorf("entry %s: Metadata missing ARN key", e.Path)
+		}
+		if _, ok := e.Metadata["Name"]; !ok {
+			t.Errorf("entry %s: Metadata missing Name key", e.Path)
+		}
+		if _, ok := e.Metadata["CreatedDate"]; !ok {
+			t.Errorf("entry %s: Metadata missing CreatedDate key", e.Path)
+		}
 	}
 }
 

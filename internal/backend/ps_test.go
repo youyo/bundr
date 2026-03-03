@@ -716,6 +716,139 @@ func TestPSBackend_GetByPrefix_SkipTagFetch(t *testing.T) {
 	}
 }
 
+// PS-D-01: Describe (SecureString) - returns Name, Type, Value, Version, ARN, DataType, LastModifiedDate
+func TestPSBackendDescribe_SecureString(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParameterFn: func(_ context.Context, input *ssm.GetParameterInput, _ ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
+			return &ssm.GetParameterOutput{
+				Parameter: &ssmtypes.Parameter{
+					Name:    aws.String("/app/db_host"),
+					Type:    ssmtypes.ParameterTypeSecureString,
+					Value:   aws.String("localhost"),
+					Version: 3,
+					ARN:     aws.String("arn:aws:ssm:ap-northeast-1:123456789:parameter/app/db_host"),
+					DataType: aws.String("text"),
+				},
+			}, nil
+		},
+	}
+
+	b := NewPSBackend(client)
+	result, err := b.Describe(ctx, "ps:/app/db_host")
+	if err != nil {
+		t.Fatalf("Describe() error: %v", err)
+	}
+
+	if result["Name"] != "/app/db_host" {
+		t.Errorf("Name = %v, want %q", result["Name"], "/app/db_host")
+	}
+	if result["Type"] != "SecureString" {
+		t.Errorf("Type = %v, want %q", result["Type"], "SecureString")
+	}
+	if result["Value"] != "localhost" {
+		t.Errorf("Value = %v, want %q", result["Value"], "localhost")
+	}
+	if result["Version"] != int64(3) {
+		t.Errorf("Version = %v, want %v", result["Version"], int64(3))
+	}
+	if result["ARN"] != "arn:aws:ssm:ap-northeast-1:123456789:parameter/app/db_host" {
+		t.Errorf("ARN = %v, want expected ARN", result["ARN"])
+	}
+	if result["DataType"] != "text" {
+		t.Errorf("DataType = %v, want %q", result["DataType"], "text")
+	}
+	// LastModifiedDate should be present (nil is OK for mock)
+	if _, ok := result["LastModifiedDate"]; !ok {
+		t.Error("LastModifiedDate key missing from result")
+	}
+}
+
+// PS-D-ERR-01: Describe with nonexistent ref returns error
+func TestPSBackendDescribe_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParameterFn: func(_ context.Context, _ *ssm.GetParameterInput, _ ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
+			return nil, fmt.Errorf("ParameterNotFound")
+		},
+	}
+
+	b := NewPSBackend(client)
+	_, err := b.Describe(ctx, "ps:/nonexistent")
+	if err == nil {
+		t.Fatal("Describe() expected error for nonexistent ref, got nil")
+	}
+	if !strings.Contains(err.Error(), "ssm GetParameter") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "ssm GetParameter")
+	}
+}
+
+// PS-GB-D-01: GetByPrefix with IncludeMetadata=true populates Metadata
+func TestPSBackend_GetByPrefix_IncludeMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	client := &mockSSMClient{
+		getParametersByPathFn: func(_ context.Context, _ *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+			return &ssm.GetParametersByPathOutput{
+				Parameters: []ssmtypes.Parameter{
+					{
+						Name:     aws.String("/app/db_host"),
+						Type:     ssmtypes.ParameterTypeSecureString,
+						Value:    aws.String("localhost"),
+						Version:  3,
+						ARN:      aws.String("arn:aws:ssm:region:123:parameter/app/db_host"),
+						DataType: aws.String("text"),
+					},
+					{
+						Name:     aws.String("/app/db_port"),
+						Type:     ssmtypes.ParameterTypeString,
+						Value:    aws.String("5432"),
+						Version:  1,
+						ARN:      aws.String("arn:aws:ssm:region:123:parameter/app/db_port"),
+						DataType: aws.String("text"),
+					},
+				},
+			}, nil
+		},
+		listTagsForResourceFn: func(_ context.Context, _ *ssm.ListTagsForResourceInput, _ ...func(*ssm.Options)) (*ssm.ListTagsForResourceOutput, error) {
+			return &ssm.ListTagsForResourceOutput{TagList: rawTagList()}, nil
+		},
+	}
+
+	b := NewPSBackend(client)
+	entries, err := b.GetByPrefix(ctx, "/app/", GetByPrefixOptions{
+		Recursive:       true,
+		IncludeMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("GetByPrefix() error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	for _, e := range entries {
+		if e.Metadata == nil {
+			t.Errorf("entry %s: Metadata is nil, want non-nil", e.Path)
+			continue
+		}
+		if _, ok := e.Metadata["ARN"]; !ok {
+			t.Errorf("entry %s: Metadata missing ARN key", e.Path)
+		}
+		if _, ok := e.Metadata["Version"]; !ok {
+			t.Errorf("entry %s: Metadata missing Version key", e.Path)
+		}
+		if _, ok := e.Metadata["Type"]; !ok {
+			t.Errorf("entry %s: Metadata missing Type key", e.Path)
+		}
+		// Metadata should NOT contain Value
+		if _, ok := e.Metadata["Value"]; ok {
+			t.Errorf("entry %s: Metadata should not contain Value", e.Path)
+		}
+	}
+}
+
 // PS-GB-07: No tags -> default raw
 func TestPSBackend_GetByPrefix_DefaultStoreModeRaw(t *testing.T) {
 	ctx := context.Background()

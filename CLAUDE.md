@@ -42,20 +42,37 @@ golangci-lint run
 ```
 bundr/
 ├── main.go
+├── main_test.go
 ├── cmd/
-│   ├── root.go          # Kong CLI root (context, config init)
-│   ├── put.go           # bundr put <ref> --value --store
-│   └── get.go           # bundr get <ref> [--raw|--json]
+│   ├── root.go          # Kong CLI root (context, config init, BackendFactory)
+│   ├── put.go           # bundr put <ref> --value --store [--secure]
+│   ├── get.go           # bundr get <ref> [--raw|--json|--describe]
+│   ├── ls.go            # bundr ls <prefix> [--recursive] [--describe]
+│   ├── export.go        # bundr export <prefix> --format shell|dotenv|direnv
+│   ├── exec.go          # bundr exec --from <prefix>... -- <cmd>
+│   ├── jsonize.go       # bundr jsonize --frompath <prefix>...
+│   ├── completion.go    # bundr completion bash|zsh|fish
+│   ├── cache.go         # bundr cache refresh|clear
+│   ├── predictor.go     # Tab completion predictors (cache + live)
+│   └── json_util.go     # JSON output helper
 └── internal/
     ├── backend/
-    │   ├── interface.go  # Backend interface (Put/Get)
+    │   ├── interface.go  # Backend interface (Put/Get/GetByPrefix/Describe)
+    │   ├── ref.go        # Ref parsing + BackendType/ValueType constants
     │   ├── ps.go         # SSM Parameter Store (ps:, psa:)
     │   ├── sm.go         # Secrets Manager (sm:)
     │   └── mock.go       # Test mock (no AWS calls)
+    ├── cache/
+    │   ├── cache.go      # FileStore: XDG-compliant, AWS identity-scoped, atomic writes
+    │   └── lock.go       # File locking (syscall.Flock, Unix-only)
+    ├── flatten/
+    │   └── flatten.go    # JSON key flattening engine
+    ├── jsonize/
+    │   └── jsonize.go    # Parameter → nested JSON conversion
     ├── tags/
     │   └── tags.go       # Tag constants (cli=bundr, cli-store-mode, cli-schema)
     └── config/
-        └── config.go     # Viper-based config (TOML + env vars)
+        └── config.go     # Config hierarchy (TOML + env vars + CLI flags)
 ```
 
 ### Key Dependencies
@@ -72,6 +89,8 @@ All AWS interaction goes through the `Backend` interface in `internal/backend/in
 type Backend interface {
     Put(ctx context.Context, ref string, opts PutOptions) error
     Get(ctx context.Context, ref string, opts GetOptions) (string, error)
+    GetByPrefix(ctx context.Context, prefix string, opts GetByPrefixOptions) ([]ParameterEntry, error)
+    Describe(ctx context.Context, ref string) (map[string]any, error)
 }
 ```
 
@@ -110,12 +129,12 @@ Never call real AWS in unit tests. All AWS SDK interfaces must be mockable.
 
 ## Milestones
 
-| M | Scope |
-|---|-------|
-| M1 | `put` / `get` commands + project scaffold (current) |
-| M2 | `export` + flatten engine |
-| M3 | `jsonize` command |
-| M4 | `__complete` + cache system (SWR, `~/.cache/bundr/`) |
-| M5 | Config hierarchy + goreleaser CI/CD |
-
-See `plans/bundr-m01-scaffold-core-commands.md` for M1 step-by-step plan.
+| M | Scope | Status |
+|---|-------|--------|
+| M1 | `put` / `get` commands + project scaffold | Done |
+| M2 | `export` + flatten engine | Done |
+| M3 | `jsonize` command | Done |
+| M4 | Tab completion + cache system (SWR, `~/.cache/bundr/`) | Done |
+| M5 | Config hierarchy + goreleaser CI/CD + Homebrew | Done |
+| M6 | `exec`, `ls`, `completion` commands; `export` positional arg | Done |
+| M7 | `exec` rename, `--describe` flag, GitHub Actions support | Done |

@@ -28,9 +28,9 @@ To pin to a specific version:
 
 ```yaml
 steps:
-  - uses: youyo/bundr@v0.5.0
+  - uses: youyo/bundr@v0.5.2
     with:
-      bundr-version: v0.5.0
+      bundr-version: v0.5.2
 ```
 
 ### Homebrew (recommended)

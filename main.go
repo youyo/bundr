@@ -114,7 +114,8 @@ func newBackendFactory(cfg *config.Config) func(backend.BackendType) (backend.Ba
 		}
 
 		switch bt {
-		case backend.BackendTypePS, backend.BackendTypePSA:
+		case backend.BackendTypePS:
+			// psa: refs are normalized to BackendTypePS by ParseRef
 			return backend.NewPSBackend(ssm.NewFromConfig(awsCfg)), nil
 		case backend.BackendTypeSM:
 			return backend.NewSMBackend(secretsmanager.NewFromConfig(awsCfg)), nil

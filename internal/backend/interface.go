@@ -4,11 +4,13 @@ import "context"
 
 // PutOptions contains options for the Put operation.
 type PutOptions struct {
-	Value     string
-	StoreMode string // "raw" or "json"
-	ValueType string // "string" or "secure"
-	KMSKeyID  string
-	Tags      map[string]string
+	Value        string
+	StoreMode    string // "raw" or "json"
+	ValueType    string // "string" or "secure"
+	KMSKeyID     string
+	Tags         map[string]string
+	AdvancedTier bool // true to force Advanced tier (equivalent to psa: prefix)
+	TierExplicit bool // true when --tier flag was explicitly specified (skips auto-detect)
 }
 
 // GetOptions contains options for the Get operation.

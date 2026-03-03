@@ -9,9 +9,8 @@ import (
 type BackendType string
 
 const (
-	BackendTypePS  BackendType = "ps"
-	BackendTypePSA BackendType = "psa"
-	BackendTypeSM  BackendType = "sm"
+	BackendTypePS BackendType = "ps"
+	BackendTypeSM BackendType = "sm"
 )
 
 // ValueType constants for PutOptions.ValueType.
@@ -22,8 +21,9 @@ const (
 
 // Ref represents a parsed backend reference.
 type Ref struct {
-	Type BackendType
-	Path string
+	Type         BackendType
+	Path         string
+	AdvancedTier bool // true when psa: prefix was used; ensures Advanced tier on Put
 }
 
 // ParseRef parses a ref string (e.g. "ps:/app/key", "sm:secret-name") into a Ref.
@@ -40,21 +40,24 @@ func ParseRef(raw string) (Ref, error) {
 	prefix := raw[:idx]
 	path := raw[idx+1:]
 
-	var bt BackendType
 	switch prefix {
 	case "ps":
-		bt = BackendTypePS
+		if path == "" {
+			return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)
+		}
+		return Ref{Type: BackendTypePS, Path: path}, nil
 	case "psa":
-		bt = BackendTypePSA
+		// psa: is an alias for ps: with Advanced tier; normalize to BackendTypePS
+		if path == "" {
+			return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)
+		}
+		return Ref{Type: BackendTypePS, Path: path, AdvancedTier: true}, nil
 	case "sm":
-		bt = BackendTypeSM
+		if path == "" {
+			return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)
+		}
+		return Ref{Type: BackendTypeSM, Path: path}, nil
 	default:
 		return Ref{}, fmt.Errorf("unknown backend prefix %q in ref %q", prefix, raw)
 	}
-
-	if path == "" {
-		return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)
-	}
-
-	return Ref{Type: bt, Path: path}, nil
 }

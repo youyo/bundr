@@ -103,7 +103,7 @@ func TestRefPredictorWithCached(t *testing.T) {
 func TestRefPredictorCacheMiss(t *testing.T) {
 	store := &TestMockStore{} // ReadFunc なし → ErrCacheNotFound 返す
 	bgLauncher := &MockBGLauncher{}
-	predictor := &refPredictor{store: store, bgLauncher: bgLauncher} // factory=nil
+	predictor := cmd.NewRefPredictor(store, bgLauncher, nil) // factory=nil
 
 	// factory=nil の場合は fetchLive が nil を返すため空リスト
 	candidates := predictor.Predict(complete.Args{Last: "ps:/app"})
@@ -116,7 +116,7 @@ func TestRefPredictorCacheMiss(t *testing.T) {
 func TestRefPredictorSecretManager(t *testing.T) {
 	store := &TestMockStore{}
 	bgLauncher := &MockBGLauncher{}
-	predictor := &refPredictor{store: store, bgLauncher: bgLauncher}
+	predictor := cmd.NewRefPredictor(store, bgLauncher, nil)
 
 	candidates := predictor.Predict(complete.Args{Last: "sm:my-secret"})
 	if len(candidates) != 0 {
@@ -147,7 +147,7 @@ func TestRefPredictorBGRefreshNeeded(t *testing.T) {
 	}
 
 	bgLauncher := &MockBGLauncher{}
-	predictor := &refPredictor{store: store, bgLauncher: bgLauncher}
+	predictor := cmd.NewRefPredictor(store, bgLauncher, nil)
 
 	predictor.Predict(complete.Args{Last: "ps:/app"})
 
@@ -220,7 +220,7 @@ func TestRefPredictorCacheError(t *testing.T) {
 	}
 
 	bgLauncher := &MockBGLauncher{}
-	predictor := &refPredictor{store: store, bgLauncher: bgLauncher}
+	predictor := cmd.NewRefPredictor(store, bgLauncher, nil)
 
 	// エラーが発生してもパニックしない（空リストを返す）
 	candidates := predictor.Predict(complete.Args{Last: "ps:/app"})
@@ -256,7 +256,7 @@ func TestRefPredictorNoThrottle(t *testing.T) {
 	}
 
 	bgLauncher := &MockBGLauncher{}
-	predictor := &refPredictor{store: store, bgLauncher: bgLauncher}
+	predictor := cmd.NewRefPredictor(store, bgLauncher, nil)
 
 	predictor.Predict(complete.Args{Last: "ps:/app"})
 

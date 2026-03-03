@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
 	"github.com/alecthomas/kong"
-	"github.com/posener/complete"
 	"github.com/willabides/kongplete"
 	"github.com/youyo/bundr/cmd"
 	"github.com/youyo/bundr/internal/backend"
@@ -20,30 +19,6 @@ import (
 )
 
 var version = "dev" // goreleaser ldflags で上書き（-X main.version=...）
-
-// refPredictor は ref-style 補完を実装した complete.Predictor。
-// cmd.NewRefPredictor へのシンラッパー。
-type refPredictor struct {
-	store      cache.Store
-	bgLauncher cmd.BGLauncher
-	factory    cmd.BackendFactory
-}
-
-func (p *refPredictor) Predict(a complete.Args) []string {
-	return cmd.NewRefPredictor(p.store, p.bgLauncher, p.factory).Predict(a)
-}
-
-// prefixPredictor は prefix-style 補完を実装した complete.Predictor。
-// cmd.NewPrefixPredictor へのシンラッパー。
-type prefixPredictor struct {
-	store      cache.Store
-	bgLauncher cmd.BGLauncher
-	factory    cmd.BackendFactory
-}
-
-func (p *prefixPredictor) Predict(a complete.Args) []string {
-	return cmd.NewPrefixPredictor(p.store, p.bgLauncher, p.factory).Predict(a)
-}
 
 func main() {
 	// 1. 設定ロード
@@ -77,8 +52,8 @@ func main() {
 
 	// 5. kongplete で補完リクエストを処理
 	kongplete.Complete(parser,
-		kongplete.WithPredictor("ref", &refPredictor{store: cacheStore, bgLauncher: bgLauncher, factory: completionFactory}),
-		kongplete.WithPredictor("prefix", &prefixPredictor{store: cacheStore, bgLauncher: bgLauncher, factory: completionFactory}),
+		kongplete.WithPredictor("ref", cmd.NewRefPredictor(cacheStore, bgLauncher, completionFactory)),
+		kongplete.WithPredictor("prefix", cmd.NewPrefixPredictor(cacheStore, bgLauncher, completionFactory)),
 	)
 
 	// 6. --version フラグを早期チェック（Parse 前に処理）

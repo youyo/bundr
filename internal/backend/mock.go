@@ -94,8 +94,8 @@ func (m *MockBackend) Put(_ context.Context, ref string, opts PutOptions) error 
 
 // Get retrieves a value from the in-memory store.
 func (m *MockBackend) Get(_ context.Context, ref string, opts GetOptions) (string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	m.GetCalls = append(m.GetCalls, GetCall{Ref: ref, Opts: opts})
 
@@ -188,8 +188,8 @@ func (m *MockBackend) GetByPrefix(_ context.Context, prefix string, opts GetByPr
 // Describe returns mock metadata for the given ref.
 // Tags are returned as the metadata map, plus the Value field.
 func (m *MockBackend) Describe(_ context.Context, ref string) (map[string]any, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	m.DescribeCalls = append(m.DescribeCalls, DescribeCall{Ref: ref})
 

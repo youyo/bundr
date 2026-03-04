@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,9 +126,11 @@ func TestSyncCmd_PS_JSON_ToStdout(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
 
 	if !strings.Contains(output, "DB_HOST=localhost") {
 		t.Errorf("output should contain DB_HOST=localhost, got %q", output)
@@ -160,9 +162,11 @@ func TestSyncCmd_PS_JSON_ToStdout_Raw(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
 
 	// Raw mode: the JSON string is treated as a single entry value, not expanded
 	// Key is "config" (path.Base), value is the raw JSON
@@ -194,9 +198,11 @@ func TestSyncCmd_PS_Prefix_ToStdout(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
 
 	if !strings.Contains(output, "DB_HOST=localhost") {
 		t.Errorf("output should contain DB_HOST=localhost, got %q", output)
@@ -244,7 +250,9 @@ func TestSyncCmd_Stdin(t *testing.T) {
 	r, w, _ := os.Pipe()
 	oldStdin := os.Stdin
 	os.Stdin = r
-	w.WriteString("KEY1=val1\nKEY2=val2\n")
+	if _, err := w.WriteString("KEY1=val1\nKEY2=val2\n"); err != nil {
+		t.Fatalf("failed to write: %v", err)
+	}
 	w.Close()
 	defer func() { os.Stdin = oldStdin }()
 

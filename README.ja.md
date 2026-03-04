@@ -90,7 +90,11 @@ bundr exec --from ps:/myapp/ -- node app.js
 | Ref | バックエンド | 説明 |
 |-----|------------|------|
 | `ps:/path/to/key` | SSM Parameter Store | デフォルトは Standard tier。`--tier advanced` で最大 8KB |
+| `parameterstore:/path/to/key` | SSM Parameter Store | `ps:` のフルネームエイリアス |
 | `sm:secret-id` | Secrets Manager | シークレット（バージョン管理あり）|
+| `secretsmanager:secret-id` | Secrets Manager | `sm:` のフルネームエイリアス |
+
+短縮形（`ps:`, `sm:`）・フルネーム（`parameterstore:`, `secretsmanager:`）はどちらも全コマンドで使用できます。
 
 ## コマンドリファレンス
 

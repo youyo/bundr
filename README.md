@@ -98,7 +98,11 @@ bundr put ps:/myapp/api_key --value s3cr3t --secure
 | Ref | Backend | Notes |
 |-----|---------|-------|
 | `ps:/path/to/key` | SSM Parameter Store | Standard tier by default; use `--tier advanced` for up to 8 KB |
+| `parameterstore:/path/to/key` | SSM Parameter Store | Full-name alias for `ps:` |
 | `sm:secret-id` | Secrets Manager | Versioned secrets |
+| `secretsmanager:secret-id` | Secrets Manager | Full-name alias for `sm:` |
+
+Both shorthand (`ps:`, `sm:`) and full-name (`parameterstore:`, `secretsmanager:`) prefixes are accepted in all commands.
 
 ## Recipes
 

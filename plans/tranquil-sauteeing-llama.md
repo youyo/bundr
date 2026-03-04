@@ -1,124 +1,74 @@
-# Plan: sync コマンドの env キー正規化修正
+# Plan: sync コマンドの JSON 展開バグ修正（test キー消失・重複キー問題）
 
 ## Context
 
-`bundr sync --from ps:/slacklens/preview/ -t -` の出力に2つの問題がある：
+`bundr sync --from ps:/slacklens/preview/ -t -` で2つの問題が発生している（v0.7.3 現在）：
 
-1. **大文字化の欠如**: JSON mode パラメータ（`cli-store-mode=json`）の値を展開したとき、JSON 内のキーが大文字化されない（例: `apigateway.url` が `APIGATEWAY_URL` にならない）
-2. **`.` → `_` 変換の欠如**: シェル変数名として無効な `.` が残ったまま出力される（例: `KNOWLEDGEBASE.ID` → `KNOWLEDGEBASE_ID` にすべき）
+1. **`test` キーが消える**: PS パラメータ `test` の値がたまたま JSON 文字列のため、`writeEntries` の JSON 展開ループが `test` のキーを飲み込む
+2. **重複キーが発生**: `apiGateway.url` パラメータ（直接）と `test` の JSON 展開（間接）が同じキー `APIGATEWAY_URL` を2重に生成
 
-### `test` キーについて
+## 根本原因の分析
 
-`bundr get` の出力で `test` は:
-```json
-"test": "{\"apigateway.url\":\"...\",\"knowledgebase.arn\":\"...\"}"
-```
-これは `cli-store-mode=json` で格納されているため、`--raw` なしの sync では JSON 展開される。出力末尾の `apigateway.url=...`、`knowledgebase.arn=...` が `test` の展開結果。スキップされているわけではない。ただしキー正規化がないため小文字+ドットのまま出力されている。
+`writeEntries` に「全エントリの値を JSON としてパースして展開する」ロジックがある（L164-180）。これが問題の原因：
+- `cli-store-mode` タグを**無視**して任意の JSON 値を展開してしまう
+- PS prefix 読み込みでは既にリーフ値が返されているのに、さらに展開を試みる
+- **単一 ref 読み込み（`readEntries` L117-129）では既に JSON 展開済み** → `writeEntries` の展開は二重で無意味かつ有害
 
-## 問題の根本原因（`cmd/sync.go`）
+## 修正方針（シンプル版）
 
-### PS prefix キー生成（sync.go ~L96-97）
+**対象ファイル**: `cmd/sync.go` + `cmd/sync_test.go`
+
+`StoreModeJSON` の prefix パラメータ展開は稀なユースケースのため対応しない。
+
+### 変更: `writeEntries` から JSON 展開ループを削除するだけ
+
+PS prefix の各エントリはリーフ値なので、`writeEntries` で展開する必要はない。
+単一 ref の JSON 展開は `readEntries`（L117-129）で既に処理済み。
+
 ```go
-key := strings.ToUpper(relPath)     // ✅ 大文字化あり
-key = strings.ReplaceAll(key, "/", "_")  // ✅ / → _ あり
-// ❌ . → _ 変換なし！
-```
-→ `agentCoreRuntime.arn` → `AGENTCORERUNTIME.ARN`（ドットが残る）
-
-### JSON 展開（sync.go ~L160-173）
-```go
-for k, v := range obj {
-    expanded = append(expanded, dotenv.Entry{Key: k, Value: ...})
-    // ❌ k はそのまま。大文字化も . → _ 変換もなし！
+// After: 展開ループを削除、エントリをそのまま書き出す
+if !isBackendRef(c.To) {
+    ...
+    writeFn := dotenv.Write
+    if c.Format == "export" {
+        writeFn = dotenv.WriteExport
+    }
+    sortEntries(entries)
+    return writeFn(w, entries)
 }
 ```
 
-### dotenv ファイル読み込み時（sync.go ~L120-121、単一ref JSON 解析）
-```go
-for k, v := range obj {
-    entries = append(entries, dotenv.Entry{Key: k, Value: ...})
-    // ❌ 同様に正規化なし
-}
-```
+`readEntries` prefix case は変更しない。
 
-## 修正方針
+## 期待される動作の変化
 
-**対象ファイル**: `cmd/sync.go` のみ
+| ケース | 修正前 | 修正後 |
+|--------|--------|--------|
+| PS prefix + JSON 文字列値（`test` ケース） | 展開される・元キー消失 ❌ | **展開されない・元キー保持** ✅ |
+| PS prefix + 通常スカラー値 | 展開されない（そのまま） | 変化なし |
+| PS 単一 ref + JSON 値 | 展開される（readEntries で） | 変化なし |
+| file/stdin + JSON 文字列 | 展開される（意図しない動作）❌ | **展開されない** ✅ |
 
-### 正規化ルール（dotenv/export 出力時）
-```
-1. strings.ToUpper(key)
-2. strings.ReplaceAll(key, ".", "_")
-3. strings.ReplaceAll(key, "/", "_")  ← 既存
-```
+## テスト追加
 
-この順番で適用する。
+新テスト:
+- `TestSyncCmd_PS_Prefix_JSON_Value_NotExpanded`: `StoreModeRaw` + JSON 値のパラメータが展開されず元キーが保持されることを確認（`test` ケースの再現）
 
-### 具体的な変更箇所
-
-**変更 1: PS prefix キー生成（L96-97 付近）**
-```go
-// Before
-key := strings.ToUpper(relPath)
-key = strings.ReplaceAll(key, "/", "_")
-
-// After
-key := strings.ToUpper(relPath)
-key = strings.ReplaceAll(key, ".", "_")  // 追加
-key = strings.ReplaceAll(key, "/", "_")
-```
-
-**変更 2: JSON 展開ループ（L160-173 付近）**
-```go
-// Before
-for k, v := range obj {
-    expanded = append(expanded, dotenv.Entry{Key: k, Value: fmt.Sprintf("%v", v)})
-}
-
-// After
-for k, v := range obj {
-    normKey := strings.ToUpper(k)
-    normKey = strings.ReplaceAll(normKey, ".", "_")
-    normKey = strings.ReplaceAll(normKey, "/", "_")
-    expanded = append(expanded, dotenv.Entry{Key: normKey, Value: fmt.Sprintf("%v", v)})
-}
-```
-
-**変更 3: 単一 ref JSON 解析（L120-121 付近）**
-- ここは dotenv ファイル → PS/SM への書き込み時のパースであり、出力側ではない
-- dotenv ファイルのキーをそのまま使うので変更不要（変更しない）
-
-## 期待される出力
-
-```
-# 修正後
-AGENTCORERUNTIME_ARN=...       ← . が _ に
-AGENTCORERUNTIME_ENDPOINTARN=...
-...
-APIGATEWAY_URL=...             ← . が _ に
-...
-KNOWLEDGEBASE_ID=...           ← . が _ に
-...
-APIGATEWAY_URL=...             ← test JSON 展開も大文字 + _ に
-KNOWLEDGEBASE_ARN=...
-```
-
-## テスト修正
-
-`cmd/sync_test.go` の既存テストでキー期待値を更新する（`.` → `_` 変換を含む）。
+既存テストへの影響：全て変化なし（単一 ref は readEntries で展開済みのため）
 
 ## 検証方法
 
-1. `go test ./cmd/...` でテスト通過確認
-2. `go build -o bundr ./... && ./bundr sync --from ps:/slacklens/preview/ -t -` で実出力確認
-3. `golangci-lint run` で lint 通過確認
+```bash
+go test ./cmd/...
+go build ./...
+```
 
 ## 対象ファイル
 
-- `cmd/sync.go` — 主要変更（2箇所）
-- `cmd/sync_test.go` — テスト期待値更新
+- `cmd/sync.go` — 変更 1（readEntries prefix に StoreMode 展開追加）、変更 2（writeEntries から展開削除）
+- `cmd/sync_test.go` — 新テスト2件追加
 
 ## スコープ外
 
-- `vars.go` の `buildVars()` は既に `.` → `_` 変換あり（`exec` コマンド用）。変更不要
-- `--from` が dotenv ファイルの場合のキー（ユーザーが明示的に書いた名前）は変換しない
+- `vars.go` / `internal/dotenv/` — 変更不要
+- `--raw` の既存動作（単一 ref）— 変更なし

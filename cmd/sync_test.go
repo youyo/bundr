@@ -410,6 +410,45 @@ func TestSyncCmd_PS_JSON_DotNormalization_ToStdout(t *testing.T) {
 	}
 }
 
+func TestSyncCmd_PS_Prefix_JSON_Value_NotExpanded(t *testing.T) {
+	// PS prefix with a key whose value is a JSON string → stdout: value is NOT expanded
+	// This is the regression test for the "test" key disappearing bug.
+	mb, appCtx := newSyncTestContext(t)
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/test", backend.PutOptions{
+		Value:     `{"apigateway_url":"https://example.com"}`,
+		StoreMode: tags.StoreModeRaw,
+	})
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	cmd := &SyncCmd{From: "ps:/app/", To: "-"}
+	err := cmd.Run(appCtx)
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
+
+	// Key should be "TEST", value should be the raw JSON string (not expanded)
+	if !strings.Contains(output, `TEST={"apigateway_url":"https://example.com"}`) {
+		t.Errorf("expected TEST key with raw JSON value, got %q", output)
+	}
+	// Expanded key "APIGATEWAY_URL" must NOT appear
+	if strings.Contains(output, "APIGATEWAY_URL") {
+		t.Errorf("APIGATEWAY_URL should not appear (JSON expansion must be suppressed), got %q", output)
+	}
+}
+
 func TestSyncCmd_Helpers(t *testing.T) {
 	tests := []struct {
 		name string

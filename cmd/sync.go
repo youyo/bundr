@@ -156,28 +156,8 @@ func (c *SyncCmd) writeEntries(appCtx *Context, entries []dotenv.Entry) error {
 			writeFn = dotenv.WriteExport
 		}
 
-		if c.Raw {
-			// Raw mode: output entries as-is
-			return writeFn(w, entries)
-		}
-
-		// Non-raw: expand JSON values
-		var expanded []dotenv.Entry
-		for _, e := range entries {
-			var obj map[string]any
-			if err := json.Unmarshal([]byte(e.Value), &obj); err == nil {
-				for k, v := range obj {
-					normKey := strings.ToUpper(k)
-					normKey = strings.ReplaceAll(normKey, ".", "_")
-					normKey = strings.ReplaceAll(normKey, "/", "_")
-					expanded = append(expanded, dotenv.Entry{Key: normKey, Value: fmt.Sprintf("%v", v)})
-				}
-			} else {
-				expanded = append(expanded, e)
-			}
-		}
-		sortEntries(expanded)
-		return writeFn(w, expanded)
+		sortEntries(entries)
+		return writeFn(w, entries)
 	}
 
 	// Backend ref

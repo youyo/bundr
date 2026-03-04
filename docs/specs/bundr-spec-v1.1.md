@@ -1,6 +1,7 @@
 # Bundr - Comprehensive Technical Specification
 
 Version: 1.1 Generated: 2026-02-27T03:21:21.521660Z
+Updated: 2026-03-04 (v0.7.0)
 
 ------------------------------------------------------------------------
 
@@ -14,8 +15,7 @@ It enables:
 
 -   Raw and JSON storage modes
 -   Tag-driven metadata portability
--   Multi-parameter bundling into structured JSON
--   Flattened environment export
+-   Bidirectional sync between .env files, stdin/stdout, and AWS backends
 -   Cache-backed, background-refresh tab completion
 -   Deterministic behavior across environments
 
@@ -41,16 +41,15 @@ This document is intended for implementation by a coding agent.
 Supported backends:
 
   Type   Meaning
-  ------ ------------------------------
-  ps     SSM Parameter Store Standard
-  psa    SSM Parameter Store Advanced
+  ------ ----------------------------------------
+  ps     SSM Parameter Store (Standard/Advanced)
   sm     AWS Secrets Manager
 
 Reference syntax:
 
--   ps:/path/to/key
--   psa:/path/to/key
--   sm:secret-id-or-name
+-   `ps:/path/to/key` — Standard tier (default)
+-   `ps:/path/to/key` with `--tier advanced` — Advanced tier
+-   `sm:secret-id-or-name`
 
 ------------------------------------------------------------------------
 
@@ -75,9 +74,9 @@ Each key must support:
 
 All managed keys MUST include:
 
-cli=bundr cli-store-mode=raw\|json cli-schema=v1
+cli=bundr cli-store-mode=raw|json cli-schema=v1
 
-Optional: cli-flatten=on\|off cli-owner=`<user>`{=html}
+Optional: cli-flatten=on|off cli-owner=`<user>`
 
 Tags are authoritative for behavior reconstruction.
 
@@ -87,35 +86,82 @@ Tags are authoritative for behavior reconstruction.
 
 ## 6.1 put
 
-bundr put `<ref>`{=html} --value `<string>`{=html} --store raw\|json
---value-type string\|secure --kms-key-id `<id>`{=html} --tags key=value
+bundr put `<ref>` --value `<string>` --value-type string|secure --kms-key-id `<id>` --tags key=value
 
-Rules: - If json mode: scalar must be JSON encoded. - SecureString
-supported for ps/psa. - Secrets Manager always encrypted.
+Rules:
+- Value is always stored in raw mode.
+- SecureString supported for ps:.
+- Secrets Manager always encrypted.
 
 ------------------------------------------------------------------------
 
 ## 6.2 get
 
-bundr get `<ref>`{=html} bundr get `<ref>`{=html} --raw bundr get
-`<ref>`{=html} --json
+bundr get `<ref>`
+bundr get `<ref>` --raw
+bundr get `<ref>` --json
+bundr get `<ref>/`
 
-Default: - If cli-store-mode=json → decode JSON. - If raw → return
-literal string.
+Default:
+- If cli-store-mode=json → decode JSON.
+- If raw → return literal string.
+- Trailing `/` on ref → collect parameters under prefix and output as JSON.
 
 ------------------------------------------------------------------------
 
-## 6.3 export
+## 6.3 sync
 
-bundr export --from \<prefix\|ref\> --format shell\|dotenv\|direnv
---no-flatten (optional) --array-mode join\|index\|json
---array-join-delim "," --flatten-delim "\_" --upper (default true)
+bundr sync -f `<source>` -t `<destination>` [--raw]
 
-Default: - flatten enabled - uppercase keys
+Bidirectional sync between .env files, stdin/stdout, and AWS backends.
 
-Output must be safe for:
+### Source/Destination types
 
-eval "\$(bundr export --from ps:/app/prod/)"
+| Type | Syntax | Example |
+|------|--------|---------|
+| File path | any path | `.env`, `/tmp/params.env` |
+| Stdin/Stdout | `-` | `-` |
+| PS single key | `ps:/path` | `ps:/app/prod/config` |
+| PS prefix | `ps:/prefix/` (trailing `/`) | `ps:/app/prod/` |
+| SM secret | `sm:id` | `sm:myapp/prod` |
+
+### Read behavior (--from)
+
+| Source type | Behavior |
+|-------------|----------|
+| File / stdin | Parse as .env format (`KEY=value`) |
+| PS prefix (`ps:/prefix/`) | Fetch all parameters under prefix; key = uppercase relative path, `/` → `_` |
+| PS/SM single ref | Fetch value; if JSON object → expand to entries; otherwise single entry with basename as key |
+
+### Write behavior (--to)
+
+| Destination type | Behavior |
+|------------------|----------|
+| File / stdout | Write .env format; JSON values are expanded unless `--raw` |
+| PS prefix (`ps:/prefix/`) | Write each entry as individual parameter (key lowercased) with raw store mode |
+| PS/SM single ref | Marshal all entries to JSON object and store with json store mode |
+
+### --raw flag
+
+Only effective when destination is file or stdout.
+When set, JSON values are not expanded — output as-is.
+
+------------------------------------------------------------------------
+
+## 6.4 ls
+
+bundr ls `<prefix>` [--recursive] [--describe]
+
+List parameters under a prefix. Output is full ref format (e.g. `ps:/app/db_host`).
+
+------------------------------------------------------------------------
+
+## 6.5 exec
+
+bundr exec --from `<prefix>`... -- `<command>` [args...]
+
+Execute a command with environment variables populated from AWS parameters.
+Multiple `--from` prefixes supported; later prefixes override earlier ones.
 
 ------------------------------------------------------------------------
 
@@ -138,50 +184,32 @@ Rules:
 
 Example:
 
-\[ "a", "b" \] → A,B \[ {"host":"x"}, {"host":"y"} \] →
-SERVERS_0\_HOST=x → SERVERS_1\_HOST=y
+[ "a", "b" ] → A,B
+[ {"host":"x"}, {"host":"y"} ] → SERVERS_0_HOST=x, SERVERS_1_HOST=y
 
 ------------------------------------------------------------------------
 
-# 8. jsonize Command
-
-bundr jsonize `<target-ref>`{=html} --frompath ps:/prefix/ --store json
---value-type string\|secure --force
-
-Behavior:
-
--   Fetch parameters under prefix
--   Construct nested JSON based on path
--   Store as single JSON value at target
-
-Example:
-
-/app/prod/DB_HOST=localhost /app/prod/DB_PORT=5432
-
-→
-
-{ "db": { "host": "localhost", "port": 5432 } }
-
-------------------------------------------------------------------------
-
-# 9. Configuration Hierarchy
+# 8. Configuration Hierarchy
 
 Priority order:
 
 1.  CLI flags
 2.  Environment variables
 3.  Project config (.bundr.toml)
-4.  Global config (\~/.config/bundr/config.toml)
+4.  Global config (~/.config/bundr/config.toml)
 
 Must support TOML.
 
 ------------------------------------------------------------------------
 
-# 10. Cache System
+# 9. Cache System
 
-Location: \~/.cache/bundr/
+Location: ~/.cache/bundr/
 
-Contents: - key metadata - tags - hierarchy index
+Contents:
+- key metadata
+- tags
+- hierarchy index
 
 NEVER store secret values.
 
@@ -196,18 +224,19 @@ Completion flow:
 
 ------------------------------------------------------------------------
 
-# 11. Completion
+# 10. Completion
 
-bundr \_\_complete `<shell>`{=html} `<args>`{=html}
+bundr completion bash|zsh|fish
 
-Must support: - prefix path completion - secret name completion - JSON
-key completion (optional, via tag metadata)
+Must support:
+- prefix path completion
+- secret name completion
 
 Completion must never block on API call.
 
 ------------------------------------------------------------------------
 
-# 12. Security Requirements
+# 11. Security Requirements
 
 -   No plaintext secrets written to disk
 -   stdin/file input for sensitive values
@@ -216,9 +245,9 @@ Completion must never block on API call.
 
 ------------------------------------------------------------------------
 
-# 13. Project Structure (Go)
+# 12. Project Structure (Go)
 
-cmd/ internal/ backend/ aws/ config/ cache/ flatten/ completion/ tags/
+cmd/ internal/ backend/ config/ cache/ flatten/ dotenv/ tags/
 
 Dependencies:
 
@@ -229,7 +258,7 @@ Dependencies:
 
 ------------------------------------------------------------------------
 
-# 14. Non-Goals
+# 13. Non-Goals
 
 -   Not a secret rotation manager
 -   Not a full config server
@@ -237,7 +266,7 @@ Dependencies:
 
 ------------------------------------------------------------------------
 
-# 15. Future Extensions
+# 14. Future Extensions
 
 -   Pluggable backends
 -   AppConfig support

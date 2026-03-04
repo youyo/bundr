@@ -45,12 +45,12 @@ bundr/
 ├── main_test.go
 ├── cmd/
 │   ├── root.go          # Kong CLI root (context, config init, BackendFactory)
-│   ├── put.go           # bundr put <ref> --value --store [--secure]
+│   ├── put.go           # bundr put <ref> --value [--secure]
 │   ├── get.go           # bundr get <ref> [--raw|--json|--describe]
 │   ├── ls.go            # bundr ls <prefix> [--recursive] [--describe]
-│   ├── export.go        # bundr export <prefix> --format shell|dotenv|direnv
+│   ├── sync.go          # bundr sync -f <source> -t <dest> [--raw]
 │   ├── exec.go          # bundr exec --from <prefix>... -- <cmd>
-│   ├── jsonize.go       # bundr jsonize --frompath <prefix>...
+│   ├── vars.go          # buildVars() helper (shared by exec and sync)
 │   ├── completion.go    # bundr completion bash|zsh|fish
 │   ├── cache.go         # bundr cache refresh|clear
 │   ├── predictor.go     # Tab completion predictors (cache + live)
@@ -71,6 +71,8 @@ bundr/
     │   └── jsonize.go    # Parameter → nested JSON conversion
     ├── tags/
     │   └── tags.go       # Tag constants (cli=bundr, cli-store-mode, cli-schema)
+    ├── dotenv/
+    │   └── dotenv.go     # .env file read/write
     └── config/
         └── config.go     # Config hierarchy (TOML + env vars + CLI flags)
 ```
@@ -96,8 +98,7 @@ type Backend interface {
 
 ### Ref Syntax
 
-- `ps:/path/to/key` — SSM Parameter Store Standard
-- `psa:/path/to/key` — SSM Parameter Store Advanced
+- `ps:/path/to/key` — SSM Parameter Store (use `--tier advanced` for Advanced)
 - `sm:secret-id` — Secrets Manager
 
 ### Tag Schema (Required on All Managed Keys)
@@ -138,3 +139,4 @@ Never call real AWS in unit tests. All AWS SDK interfaces must be mockable.
 | M5 | Config hierarchy + goreleaser CI/CD + Homebrew | Done |
 | M6 | `exec`, `ls`, `completion` commands; `export` positional arg | Done |
 | M7 | `exec` rename, `--describe` flag, GitHub Actions support | Done |
+| M8 | `sync` コマンド追加・`export`/`jsonize`/`put --store` 廃止 | Done |

@@ -11,7 +11,7 @@ A CLI that unifies AWS Parameter Store and Secrets Manager.
 
 - Reads and writes to SSM Parameter Store (Standard and Advanced) and Secrets Manager through a single interface.
 - Tags every managed parameter with `cli=bundr` for auditing and filtering.
-- Exports parameters as environment variables (`shell`, `dotenv`, `direnv`).
+- Syncs parameters between .env files, PS, SM, and stdio in any direction.
 - Injects parameters into a subprocess environment without touching the shell.
 - Caches parameter paths locally to speed up tab completion.
 
@@ -21,16 +21,16 @@ A CLI that unifies AWS Parameter Store and Secrets Manager.
 
 ```yaml
 steps:
-  - uses: youyo/bundr@v0.6
+  - uses: youyo/bundr@v0.7
 ```
 
 To pin to a specific version:
 
 ```yaml
 steps:
-  - uses: youyo/bundr@v0.6.0
+  - uses: youyo/bundr@v0.7.0
     with:
-      bundr-version: v0.6.0
+      bundr-version: v0.7.0
 ```
 
 ### Homebrew (recommended)
@@ -75,7 +75,7 @@ sudo mv bundr /usr/local/bin/
 
 ```bash
 # 1. Store a value
-bundr put ps:/myapp/db_host --value localhost --store raw
+bundr put ps:/myapp/db_host --value localhost
 
 # 2. Get a value
 bundr get ps:/myapp/db_host
@@ -83,14 +83,14 @@ bundr get ps:/myapp/db_host
 # 3. List parameters under a prefix
 bundr ls ps:/myapp/
 
-# 4. Export as environment variables
-eval "$(bundr export ps:/myapp/ --format shell)"
+# 4. Sync parameters to a .env file
+bundr sync --from ps:/myapp/ --to .env
 
 # 5. Run a command with parameters injected
 bundr exec --from ps:/myapp/ -- node app.js
 
 # Store a sensitive value as SecureString
-bundr put ps:/myapp/api_key --value s3cr3t --store raw --secure
+bundr put ps:/myapp/api_key --value s3cr3t --secure
 ```
 
 ## Ref syntax
@@ -104,35 +104,28 @@ bundr put ps:/myapp/api_key --value s3cr3t --store raw --secure
 
 ### put
 
-Store a string in raw mode:
+Store a value:
 
 ```bash
-bundr put ps:/app/db_host --value localhost --store raw
-```
-
-Store a value that should be treated as a JSON scalar:
-
-```bash
-bundr put ps:/app/db_port --value 5432 --store json
-bundr put ps:/app/debug --value true --store json
+bundr put ps:/app/db_host --value localhost
 ```
 
 Store to Secrets Manager:
 
 ```bash
-bundr put sm:myapp/api-key --value s3cr3t --store raw
+bundr put sm:myapp/api-key --value s3cr3t
 ```
 
 Encrypt with a specific KMS key (Advanced tier):
 
 ```bash
-bundr put ps:/app/token --value s3cr3t --store raw --tier advanced --kms-key-id alias/my-key
+bundr put ps:/app/token --value s3cr3t --tier advanced --kms-key-id alias/my-key
 ```
 
 Store a sensitive value as SSM SecureString:
 
 ```bash
-bundr put ps:/app/api_key --value s3cr3t --store raw --secure
+bundr put ps:/app/api_key --value s3cr3t --secure
 ```
 
 ### get
@@ -153,6 +146,13 @@ Print the raw stored value, ignoring the store-mode tag:
 
 ```bash
 bundr get ps:/app/db_port --raw
+```
+
+Fetch all parameters under a prefix as JSON (use trailing `/`):
+
+```bash
+bundr get ps:/app/
+# {"db_host":"localhost","db_port":"5432"}
 ```
 
 ### ls
@@ -178,31 +178,42 @@ Count parameters:
 bundr ls ps:/app/ | wc -l
 ```
 
-### export
+### sync
 
-Load parameters into the current shell:
-
-```bash
-eval "$(bundr export ps:/app/ --format shell)"
-```
-
-Write a `.env` file:
+Sync parameters between .env files, Parameter Store, Secrets Manager, and stdio:
 
 ```bash
-bundr export ps:/app/ --format dotenv > .env
-```
+# .env → PS (JSON bulk)
+bundr sync --from .env --to ps:/app/config
+# → ps:/app/config = {"DB_HOST":"localhost","DB_PORT":"5432"}
 
-Write a direnv `.envrc`:
+# .env → PS (flat expansion)
+bundr sync --from .env --to ps:/app/
+# → ps:/app/db_host = localhost
+# → ps:/app/db_port = 5432
 
-```bash
-bundr export ps:/app/ --format direnv > .envrc
-```
+# .env → SM (JSON bulk)
+bundr sync --from .env --to sm:myapp-prod
 
-Use in a CI/CD pipeline (GitHub Actions):
+# PS (JSON value) → stdout (.env format with expansion)
+bundr sync --from ps:/app/config --to -
+# → DB_HOST=localhost
 
-```yaml
-- name: Load parameters
-  run: eval "$(bundr export ps:/myapp/prod/ --format shell)"
+# PS prefix → stdout (.env format)
+bundr sync --from ps:/app/ --to -
+
+# Output raw value without expansion
+bundr sync --from ps:/app/config --to - --raw
+# → {"DB_HOST":"localhost"}
+
+# PS → SM (copy)
+bundr sync --from ps:/app/config --to sm:backup
+
+# stdin → PS
+cat .env | bundr sync --from - --to ps:/app/config
+
+# SM → .env file
+bundr sync --from sm:prod --to .env
 ```
 
 ### exec
@@ -235,58 +246,6 @@ Use in a GitHub Actions workflow:
   env:
     AWS_REGION: ap-northeast-1
     AWS_ROLE_ARN: arn:aws:iam::123456789012:role/MyRole
-```
-
-### jsonize
-
-Reads parameters under one or more prefixes and outputs them as a single JSON object to stdout:
-
-```bash
-bundr jsonize --frompath ps:/app/
-```
-
-Combine multiple prefixes into one JSON object:
-
-```bash
-bundr jsonize --frompath ps:/app/db/ --frompath ps:/app/api/
-```
-
-Fetch a single leaf parameter (non-prefix path):
-
-```bash
-bundr jsonize --frompath ps:/app/db_host
-```
-
-Save the result to a Secrets Manager secret instead of stdout:
-
-```bash
-bundr jsonize --frompath ps:/app/ --to sm:myapp-config
-```
-
-Use `--force` to overwrite an existing secret:
-
-```bash
-bundr jsonize --frompath ps:/app/ --to sm:myapp-config --force
-```
-
-Compact output (no indentation):
-
-```bash
-bundr jsonize --frompath ps:/app/ --compact
-```
-
-Store individual SSM parameters, then restore as JSON (round-trip):
-
-```bash
-# Write individual parameters
-bundr put ps:/app/db_host --value localhost --store raw
-bundr put ps:/app/db_port --value 5432 --store json
-
-# Combine into a JSON object in Secrets Manager
-bundr jsonize --frompath ps:/app/ --to sm:myapp-config
-
-# Read the JSON back
-bundr get sm:myapp-config
 ```
 
 ### completion
@@ -357,48 +316,52 @@ bundr cache clear && bundr cache refresh ps:/
 ### bundr put
 
 ```
-bundr put <ref> --value <string> --store raw|json [flags]
+bundr put <ref> --value <string> [flags]
 ```
 
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--value` | Yes | Value to store |
-| `--store` | Yes | `raw` stores as-is; `json` encodes scalars as JSON |
 | `--kms-key-id` | No | KMS key ID or ARN for encryption |
 | `--secure` | No | Use SecureString type (SSM Parameter Store only) |
 
 ### bundr get
 
 ```
-bundr get <ref> [--raw|--json] [flags]
+bundr get <ref> [--raw|--json|--describe] [flags]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--raw` | Print the stored value without JSON decoding |
 | `--json` | Print the JSON-encoded value |
+| `--describe` | Print parameter metadata as JSON |
 
-### bundr export
+Use a trailing `/` to fetch all parameters under a prefix as JSON:
 
 ```
-bundr export <prefix> --format shell|dotenv|direnv [flags]
+bundr get ps:/app/
 ```
 
-| Format | Output |
-|--------|--------|
-| `shell` | `export KEY=value` |
-| `dotenv` | `KEY=value` |
-| `direnv` | `export KEY=value` |
+### bundr sync
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--format` | | Output format (required) |
-| `--recursive` | false | List recursively (include all nested paths) |
-| `--upper` | true | Uppercase variable names |
-| `--flatten-delim` | `_` | Delimiter for flattened keys |
-| `--no-flatten` | false | Disable JSON key flattening |
-| `--array-mode` | `join` | Array handling: `join`, `index`, or `json` |
-| `--array-join-delim` | `,` | Delimiter for `join` mode |
+```
+bundr sync -f <source> -t <dest> [--raw]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-f`, `--from` | Source (file path, `-`, `ps:/path`, `ps:/prefix/`, `sm:id`) |
+| `-t`, `--to` | Destination (file path, `-`, `ps:/path`, `ps:/prefix/`, `sm:id`) |
+| `--raw` | Output raw value without expanding JSON (file/stdout only) |
+
+`--to` trailing `/` controls storage mode:
+
+| Destination | Behavior |
+|-------------|----------|
+| `ps:/path` | JSON bulk save |
+| `ps:/prefix/` | Flat expansion (keys lowercased, each key as individual parameter) |
+| `sm:id` | JSON bulk save |
 
 ### bundr ls
 
@@ -423,23 +386,6 @@ bundr exec [--from <prefix>]... [flags] -- <command> [args...]
 | `--array-mode` | `join` | `join`, `index`, or `json` |
 | `--array-join-delim` | `,` | Delimiter for `join` mode |
 
-### bundr jsonize
-
-```
-bundr jsonize --frompath <prefix|ref> [--frompath <prefix|ref>]... [--to <ref>] [--force] [--compact]
-```
-
-Outputs JSON to stdout by default. Use `--to` to save to a parameter or secret.
-
-| Flag | Description |
-|------|-------------|
-| `--frompath` | SSM prefix or leaf ref to read from; may be repeated |
-| `--to` | Save output to this ref instead of stdout |
-| `--store` | Storage mode for target: `raw` or `json` (default: `json`; requires `--to`) |
-| `--value-type` | Value type for target: `string` or `secure` (default: `string`; requires `--to`) |
-| `--force` | Overwrite if the target already exists (requires `--to`) |
-| `--compact` | Compact JSON output (no indentation) |
-
 ### bundr completion
 
 ```
@@ -454,54 +400,6 @@ bundr cache clear
 ```
 
 ## Advanced topics
-
-### JSON flattening
-
-When parameters are stored in a JSON-encoded hierarchy (store-mode=json), bundr flattens nested keys into environment variable names using a delimiter.
-
-```bash
-# Given these parameters:
-# ps:/app/db_host  = "localhost"   (raw)
-# ps:/app/server   = '{"host":"0.0.0.0","port":8080}'  (json, nested)
-
-bundr export ps:/app/ --format shell
-# export DB_HOST=localhost
-# export SERVER_HOST=0.0.0.0
-# export SERVER_PORT=8080
-```
-
-Use `--no-flatten` to keep JSON values as-is:
-
-```bash
-bundr export ps:/app/ --format shell --no-flatten
-# export DB_HOST=localhost
-# export SERVER={"host":"0.0.0.0","port":8080}
-```
-
-### Array handling modes
-
-When a JSON value is an array, `--array-mode` controls the output:
-
-| Mode | Input | Output |
-|------|-------|--------|
-| `join` (default) | `["a","b","c"]` | `ITEMS=a,b,c` |
-| `index` | `["a","b","c"]` | `ITEMS_0=a`, `ITEMS_1=b`, `ITEMS_2=c` |
-| `json` | `["a","b","c"]` | `ITEMS=["a","b","c"]` |
-
-```bash
-# join mode (default)
-bundr export ps:/app/ --format shell --array-mode join --array-join-delim ":"
-# export PATH_EXTRA=/usr/local/bin:/usr/bin
-
-# index mode
-bundr export ps:/app/ --format shell --array-mode index
-# export ITEMS_0=a
-# export ITEMS_1=b
-
-# json mode (keep raw JSON)
-bundr export ps:/app/ --format shell --array-mode json
-# export ITEMS=["a","b","c"]
-```
 
 ### Tab completion
 
@@ -592,7 +490,7 @@ bundr tags every managed parameter:
 | Tag | Value | Purpose |
 |-----|-------|---------|
 | `cli` | `bundr` | Identifies bundr-managed resources |
-| `cli-store-mode` | `raw` or `json` | Controls decoding on `get` and `export` |
+| `cli-store-mode` | `raw` or `json` | Controls decoding on `get` |
 | `cli-schema` | `v1` | Schema version |
 
 ## License

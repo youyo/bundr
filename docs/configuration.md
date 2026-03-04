@@ -63,8 +63,21 @@ CLI フラグは環境変数や設定ファイルの値を上書きします:
 bundr --region ap-northeast-1 get ps:/myapp/DB_HOST
 
 # 複数フラグを組み合わせ
-bundr --region ap-northeast-1 --profile prod --kms-key-id alias/mykey put ps:/myapp/secret --value "val" --store raw
+bundr --region ap-northeast-1 --profile prod --kms-key-id alias/mykey put ps:/myapp/secret --value "val"
 ```
+
+## 設定が影響するコマンド
+
+以下のコマンドは AWS リージョン・プロファイル・KMS キー ID の設定に影響されます:
+
+| コマンド | 説明 |
+|----------|------|
+| `bundr put` | パラメータ/シークレットの書き込み |
+| `bundr get` | パラメータ/シークレットの読み取り |
+| `bundr sync` | .env ファイルと AWS バックエンド間の双方向同期 |
+| `bundr ls` | パラメータ一覧の取得 |
+| `bundr exec` | 環境変数を注入してコマンドを実行 |
+| `bundr cache refresh` | キャッシュの更新 |
 
 ## 設定の例
 

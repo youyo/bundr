@@ -64,6 +64,17 @@ func Write(w io.Writer, entries []Entry) error {
 	return nil
 }
 
+// WriteExport outputs entries in "export KEY=VALUE" format to w.
+// Suitable for use with eval: eval $(bundr sync -f ... -t -)
+func WriteExport(w io.Writer, entries []Entry) error {
+	for _, e := range entries {
+		if _, err := fmt.Fprintf(w, "export %s=%s\n", e.Key, e.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // unquote removes matching surrounding quotes (single or double) from s.
 func unquote(s string) string {
 	if len(s) >= 2 {

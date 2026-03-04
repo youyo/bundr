@@ -17,9 +17,10 @@ import (
 
 // SyncCmd represents the "sync" subcommand.
 type SyncCmd struct {
-	From string `required:"" short:"f" help:"Source: file path, -, ps:/path, ps:/prefix/, sm:id"`
-	To   string `required:"" short:"t" help:"Destination: file path, -, ps:/path, ps:/prefix/, sm:id"`
-	Raw  bool   `help:"Output raw value without expanding JSON (only for file/stdout destination)"`
+	From   string `required:"" short:"f" help:"Source: file path, -, ps:/path, ps:/prefix/, sm:id"`
+	To     string `required:"" short:"t" help:"Destination: file path, -, ps:/path, ps:/prefix/, sm:id"`
+	Raw    bool   `help:"Output raw value without expanding JSON (only for file/stdout destination)"`
+	Format string `default:"dotenv" enum:"dotenv,export" help:"Output format for file/stdout destination (dotenv or export)"`
 }
 
 // Run executes the sync command.
@@ -146,9 +147,14 @@ func (c *SyncCmd) writeEntries(appCtx *Context, entries []dotenv.Entry) error {
 			w = f
 		}
 
+		writeFn := dotenv.Write
+		if c.Format == "export" {
+			writeFn = dotenv.WriteExport
+		}
+
 		if c.Raw {
 			// Raw mode: output entries as-is
-			return dotenv.Write(w, entries)
+			return writeFn(w, entries)
 		}
 
 		// Non-raw: expand JSON values
@@ -164,7 +170,7 @@ func (c *SyncCmd) writeEntries(appCtx *Context, entries []dotenv.Entry) error {
 			}
 		}
 		sortEntries(expanded)
-		return dotenv.Write(w, expanded)
+		return writeFn(w, expanded)
 	}
 
 	// Backend ref

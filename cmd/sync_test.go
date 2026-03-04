@@ -273,6 +273,73 @@ func TestSyncCmd_Stdin(t *testing.T) {
 	}
 }
 
+func TestSyncCmd_FormatExport_ToStdout(t *testing.T) {
+	// .env file → stdout with --format export
+	_, appCtx := newSyncTestContext(t)
+
+	tmpFile := writeTempEnv(t, "DB_HOST=localhost\nDB_PORT=5432\n")
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	cmd := &SyncCmd{From: tmpFile, To: "-", Format: "export"}
+	err := cmd.Run(appCtx)
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
+
+	if !strings.Contains(output, "export DB_HOST=localhost") {
+		t.Errorf("output should contain 'export DB_HOST=localhost', got %q", output)
+	}
+	if !strings.Contains(output, "export DB_PORT=5432") {
+		t.Errorf("output should contain 'export DB_PORT=5432', got %q", output)
+	}
+}
+
+func TestSyncCmd_FormatExport_PS_Prefix_ToStdout(t *testing.T) {
+	// PS prefix → stdout with --format export
+	mb, appCtx := newSyncTestContext(t)
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/db_host", backend.PutOptions{Value: "localhost", StoreMode: tags.StoreModeRaw})
+	_ = mb.Put(ctx, "ps:/app/db_port", backend.PutOptions{Value: "5432", StoreMode: tags.StoreModeRaw})
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	cmd := &SyncCmd{From: "ps:/app/", To: "-", Format: "export"}
+	err := cmd.Run(appCtx)
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
+
+	if !strings.Contains(output, "export DB_HOST=localhost") {
+		t.Errorf("output should contain 'export DB_HOST=localhost', got %q", output)
+	}
+	if !strings.Contains(output, "export DB_PORT=5432") {
+		t.Errorf("output should contain 'export DB_PORT=5432', got %q", output)
+	}
+}
+
 func TestSyncCmd_Helpers(t *testing.T) {
 	tests := []struct {
 		name string

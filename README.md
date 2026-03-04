@@ -206,6 +206,14 @@ bundr sync --from ps:/app/ --to -
 bundr sync --from ps:/app/config --to - --raw
 # → {"DB_HOST":"localhost"}
 
+# Output in export format (suitable for eval)
+bundr sync --from ps:/app/ --to - --format export
+# → export DB_HOST=localhost
+# → export DB_PORT=5432
+
+# Load parameters into the current shell
+eval $(bundr sync --from ps:/app/ --to - --format export)
+
 # PS → SM (copy)
 bundr sync --from ps:/app/config --to sm:backup
 
@@ -346,14 +354,15 @@ bundr get ps:/app/
 ### bundr sync
 
 ```
-bundr sync -f <source> -t <dest> [--raw]
+bundr sync -f <source> -t <dest> [--raw] [--format dotenv|export]
 ```
 
-| Flag | Description |
-|------|-------------|
-| `-f`, `--from` | Source (file path, `-`, `ps:/path`, `ps:/prefix/`, `sm:id`) |
-| `-t`, `--to` | Destination (file path, `-`, `ps:/path`, `ps:/prefix/`, `sm:id`) |
-| `--raw` | Output raw value without expanding JSON (file/stdout only) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-f`, `--from` | | Source (file path, `-`, `ps:/path`, `ps:/prefix/`, `sm:id`) |
+| `-t`, `--to` | | Destination (file path, `-`, `ps:/path`, `ps:/prefix/`, `sm:id`) |
+| `--raw` | false | Output raw value without expanding JSON (file/stdout only) |
+| `--format` | `dotenv` | Output format for file/stdout: `dotenv` (`KEY=VALUE`) or `export` (`export KEY=VALUE`) |
 
 `--to` trailing `/` controls storage mode:
 

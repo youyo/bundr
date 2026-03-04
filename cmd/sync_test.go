@@ -340,6 +340,76 @@ func TestSyncCmd_FormatExport_PS_Prefix_ToStdout(t *testing.T) {
 	}
 }
 
+func TestSyncCmd_PS_Prefix_DotNormalization_ToStdout(t *testing.T) {
+	// PS prefix with dot-containing keys → stdout: dots become underscores, keys uppercased
+	mb, appCtx := newSyncTestContext(t)
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/apigateway.url", backend.PutOptions{Value: "https://example.com", StoreMode: tags.StoreModeRaw})
+	_ = mb.Put(ctx, "ps:/app/knowledgebase.id", backend.PutOptions{Value: "kb-123", StoreMode: tags.StoreModeRaw})
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	cmd := &SyncCmd{From: "ps:/app/", To: "-"}
+	err := cmd.Run(appCtx)
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
+
+	if !strings.Contains(output, "APIGATEWAY_URL=https://example.com") {
+		t.Errorf("output should contain APIGATEWAY_URL=https://example.com, got %q", output)
+	}
+	if !strings.Contains(output, "KNOWLEDGEBASE_ID=kb-123") {
+		t.Errorf("output should contain KNOWLEDGEBASE_ID=kb-123, got %q", output)
+	}
+}
+
+func TestSyncCmd_PS_JSON_DotNormalization_ToStdout(t *testing.T) {
+	// PS JSON value with dot-containing keys → stdout: dots become underscores, keys uppercased
+	mb, appCtx := newSyncTestContext(t)
+	ctx := context.Background()
+	_ = mb.Put(ctx, "ps:/app/config", backend.PutOptions{
+		Value:     `{"apigateway.url":"https://example.com","knowledgebase.id":"kb-123"}`,
+		StoreMode: tags.StoreModeJSON,
+	})
+
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	cmd := &SyncCmd{From: "ps:/app/config", To: "-"}
+	err := cmd.Run(appCtx)
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	output := string(out)
+
+	if !strings.Contains(output, "APIGATEWAY_URL=https://example.com") {
+		t.Errorf("output should contain APIGATEWAY_URL=https://example.com, got %q", output)
+	}
+	if !strings.Contains(output, "KNOWLEDGEBASE_ID=kb-123") {
+		t.Errorf("output should contain KNOWLEDGEBASE_ID=kb-123, got %q", output)
+	}
+}
+
 func TestSyncCmd_Helpers(t *testing.T) {
 	tests := []struct {
 		name string

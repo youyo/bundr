@@ -94,6 +94,7 @@ func (c *SyncCmd) readEntries(appCtx *Context) ([]dotenv.Entry, error) {
 				continue
 			}
 			key := strings.ToUpper(relPath)
+			key = strings.ReplaceAll(key, ".", "_")
 			key = strings.ReplaceAll(key, "/", "_")
 			entries = append(entries, dotenv.Entry{Key: key, Value: e.Value})
 		}
@@ -118,7 +119,10 @@ func (c *SyncCmd) readEntries(appCtx *Context) ([]dotenv.Entry, error) {
 	if err := json.Unmarshal([]byte(val), &obj); err == nil {
 		var entries []dotenv.Entry
 		for k, v := range obj {
-			entries = append(entries, dotenv.Entry{Key: k, Value: fmt.Sprintf("%v", v)})
+			normKey := strings.ToUpper(k)
+			normKey = strings.ReplaceAll(normKey, ".", "_")
+			normKey = strings.ReplaceAll(normKey, "/", "_")
+			entries = append(entries, dotenv.Entry{Key: normKey, Value: fmt.Sprintf("%v", v)})
 		}
 		sortEntries(entries)
 		return entries, nil
@@ -163,7 +167,10 @@ func (c *SyncCmd) writeEntries(appCtx *Context, entries []dotenv.Entry) error {
 			var obj map[string]any
 			if err := json.Unmarshal([]byte(e.Value), &obj); err == nil {
 				for k, v := range obj {
-					expanded = append(expanded, dotenv.Entry{Key: k, Value: fmt.Sprintf("%v", v)})
+					normKey := strings.ToUpper(k)
+					normKey = strings.ReplaceAll(normKey, ".", "_")
+					normKey = strings.ReplaceAll(normKey, "/", "_")
+					expanded = append(expanded, dotenv.Entry{Key: normKey, Value: fmt.Sprintf("%v", v)})
 				}
 			} else {
 				expanded = append(expanded, e)

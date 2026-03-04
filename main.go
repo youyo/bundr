@@ -18,7 +18,7 @@ import (
 	"github.com/youyo/bundr/internal/config"
 )
 
-var version = "0.7.2" // goreleaser ldflags で上書き（-X main.version=...）
+var version = "0.7.3" // goreleaser ldflags で上書き（-X main.version=...）
 
 func main() {
 	// 1. 設定ロード

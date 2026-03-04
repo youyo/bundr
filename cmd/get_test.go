@@ -285,6 +285,77 @@ func TestGetCmd_Describe_TakesPrecedenceOverRaw(t *testing.T) {
 	}
 }
 
+// TestGetCmd_Prefix tests get with trailing / to fetch multiple keys as JSON map.
+func TestGetCmd_Prefix(t *testing.T) {
+	mock := backend.NewMockBackend()
+	ctx := context.Background()
+
+	_ = mock.Put(ctx, "ps:/app/prod/DB_HOST", backend.PutOptions{
+		Value:     "localhost",
+		StoreMode: tags.StoreModeRaw,
+	})
+	_ = mock.Put(ctx, "ps:/app/prod/DB_PORT", backend.PutOptions{
+		Value:     "5432",
+		StoreMode: tags.StoreModeRaw,
+	})
+
+	appCtx := &Context{
+		BackendFactory: func(_ backend.BackendType) (backend.Backend, error) {
+			return mock, nil
+		},
+	}
+
+	cmd := &GetCmd{Ref: "ps:/app/prod/"}
+
+	output := captureStdout(t, func() {
+		err := cmd.Run(appCtx)
+		if err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+	})
+
+	var result map[string]string
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, output)
+	}
+
+	if result["DB_HOST"] != "localhost" {
+		t.Errorf("DB_HOST = %q, want %q", result["DB_HOST"], "localhost")
+	}
+	if result["DB_PORT"] != "5432" {
+		t.Errorf("DB_PORT = %q, want %q", result["DB_PORT"], "5432")
+	}
+}
+
+// TestGetCmd_PrefixEmpty tests get with trailing / and no matching entries.
+func TestGetCmd_PrefixEmpty(t *testing.T) {
+	mock := backend.NewMockBackend()
+
+	appCtx := &Context{
+		BackendFactory: func(_ backend.BackendType) (backend.Backend, error) {
+			return mock, nil
+		},
+	}
+
+	cmd := &GetCmd{Ref: "ps:/empty/prefix/"}
+
+	output := captureStdout(t, func() {
+		err := cmd.Run(appCtx)
+		if err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+	})
+
+	var result map[string]string
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, output)
+	}
+
+	if len(result) != 0 {
+		t.Errorf("expected empty map, got %v", result)
+	}
+}
+
 // captureStdout captures stdout output during the execution of fn.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()

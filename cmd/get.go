@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/youyo/bundr/internal/backend"
 )
@@ -26,6 +27,23 @@ func (c *GetCmd) Run(appCtx *Context) error {
 	b, err := appCtx.BackendFactory(ref.Type)
 	if err != nil {
 		return fmt.Errorf("get command failed: create backend: %w", err)
+	}
+
+	// prefix モード（末尾 / の場合）
+	if strings.HasSuffix(ref.Path, "/") {
+		entries, err := b.GetByPrefix(context.Background(), ref.Path, backend.GetByPrefixOptions{Recursive: true})
+		if err != nil {
+			return fmt.Errorf("get command failed: %w", err)
+		}
+		result := make(map[string]string)
+		for _, entry := range entries {
+			key := strings.TrimPrefix(entry.Path, ref.Path)
+			if key == "" {
+				continue
+			}
+			result[key] = entry.Value
+		}
+		return printJSON(os.Stdout, result)
 	}
 
 	if c.Describe {

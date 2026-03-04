@@ -17,7 +17,6 @@ func TestPutCmd_RunRaw(t *testing.T) {
 	cmd := &PutCmd{
 		Ref:   "ps:/app/test/KEY",
 		Value: "hello",
-		Store: tags.StoreModeRaw,
 	}
 
 	appCtx := &Context{
@@ -46,7 +45,7 @@ func TestPutCmd_RunRaw(t *testing.T) {
 	}
 }
 
-func TestPutCmd_RunJSON(t *testing.T) {
+func TestPutCmd_AlwaysUsesRawStoreMode(t *testing.T) {
 	mock := backend.NewMockBackend()
 	factory := func(_ backend.BackendType) (backend.Backend, error) {
 		return mock, nil
@@ -55,7 +54,6 @@ func TestPutCmd_RunJSON(t *testing.T) {
 	cmd := &PutCmd{
 		Ref:   "ps:/app/test/KEY",
 		Value: "hello",
-		Store: tags.StoreModeJSON,
 	}
 
 	appCtx := &Context{
@@ -73,8 +71,8 @@ func TestPutCmd_RunJSON(t *testing.T) {
 	}
 
 	call := mock.PutCalls[0]
-	if call.Opts.StoreMode != tags.StoreModeJSON {
-		t.Errorf("PutCall storeMode = %q, want %q", call.Opts.StoreMode, tags.StoreModeJSON)
+	if call.Opts.StoreMode != tags.StoreModeRaw {
+		t.Errorf("PutCall storeMode = %q, want %q (--store flag removed, always raw)", call.Opts.StoreMode, tags.StoreModeRaw)
 	}
 }
 
@@ -87,7 +85,6 @@ func TestPutCmd_RunSecure(t *testing.T) {
 	cmd := &PutCmd{
 		Ref:    "ps:/app/test/SECRET",
 		Value:  "secret-value",
-		Store:  tags.StoreModeRaw,
 		Secure: true,
 	}
 
@@ -118,7 +115,6 @@ func TestPutCmd_RunSM(t *testing.T) {
 	cmd := &PutCmd{
 		Ref:   "sm:my-secret",
 		Value: "secret-value",
-		Store: tags.StoreModeRaw,
 	}
 
 	appCtx := &Context{
@@ -173,7 +169,6 @@ func TestPutCmd_TierFlag(t *testing.T) {
 			cmd := &PutCmd{
 				Ref:   "ps:/app/test/KEY",
 				Value: "hello",
-				Store: tags.StoreModeRaw,
 				Tier:  tt.tier,
 			}
 
@@ -209,7 +204,6 @@ func TestPutCmd_RunInvalidRef(t *testing.T) {
 	cmd := &PutCmd{
 		Ref:   "invalid",
 		Value: "hello",
-		Store: tags.StoreModeRaw,
 	}
 
 	appCtx := &Context{

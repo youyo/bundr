@@ -5,13 +5,13 @@ import (
 	"fmt"
 
 	"github.com/youyo/bundr/internal/backend"
+	"github.com/youyo/bundr/internal/tags"
 )
 
 // PutCmd represents the "put" subcommand.
 type PutCmd struct {
 	Ref    string `arg:"" predictor:"ref" help:"Target ref (e.g. ps:/app/prod/DB_HOST, sm:secret-id)"`
 	Value  string `short:"v" required:"" help:"Value to store"`
-	Store  string `short:"s" default:"raw" enum:"raw,json" help:"Storage mode (raw|json)"`
 	Secure bool   `help:"Use SecureString (SSM Parameter Store only)"`
 	Tier   string `help:"Parameter Store tier override (standard|advanced). Omit to auto-detect existing tier." enum:"standard,advanced," default:""`
 }
@@ -30,7 +30,7 @@ func (c *PutCmd) Run(appCtx *Context) error {
 
 	opts := backend.PutOptions{
 		Value:     c.Value,
-		StoreMode: c.Store,
+		StoreMode: tags.StoreModeRaw,
 	}
 
 	if c.Secure {

@@ -19,12 +19,11 @@ type CLI struct {
 
 	Put        PutCmd        `cmd:"" help:"Store a value to AWS Parameter Store or Secrets Manager."`
 	Get        GetCmd        `cmd:"" help:"Get a value from a backend."`
-	Export     ExportCmd     `cmd:"" help:"Export parameters as environment variables."`
 	Ls         LsCmd         `cmd:"" help:"List parameter paths."`
 	Exec       ExecCmd       `cmd:"" help:"Execute a command with parameters as environment variables."`
 	Completion CompletionCmd `cmd:"" help:"Output shell completion script."`
-	Jsonize    JsonizeCmd    `cmd:"" help:"Build a nested JSON from parameter prefix and store it."`
 	Cache      CacheCmd      `cmd:"" help:"Manage local completion cache."`
+	Sync       SyncCmd       `cmd:"" help:"Sync parameters between .env, ps:, and sm:"`
 }
 
 // BackendFactory は BackendType からバックエンドを生成する関数型。

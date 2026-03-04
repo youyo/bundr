@@ -38,7 +38,8 @@ func (c *SyncCmd) Run(appCtx *Context) error {
 }
 
 func isBackendRef(s string) bool {
-	return strings.HasPrefix(s, "ps:") || strings.HasPrefix(s, "sm:")
+	return strings.HasPrefix(s, "ps:") || strings.HasPrefix(s, "sm:") ||
+		strings.HasPrefix(s, "parameterstore:") || strings.HasPrefix(s, "secretsmanager:")
 }
 
 func isPrefix(s string) bool {

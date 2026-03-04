@@ -61,6 +61,28 @@ func TestParseRef(t *testing.T) {
 			input:   "sm:",
 			wantErr: true,
 		},
+		{
+			name:     "parameterstore alias",
+			input:    "parameterstore:/app/key",
+			wantType: BackendTypePS,
+			wantPath: "/app/key",
+		},
+		{
+			name:     "secretsmanager alias",
+			input:    "secretsmanager:my-secret",
+			wantType: BackendTypeSM,
+			wantPath: "my-secret",
+		},
+		{
+			name:    "parameterstore alias with no path",
+			input:   "parameterstore:",
+			wantErr: true,
+		},
+		{
+			name:    "secretsmanager alias with no name",
+			input:   "secretsmanager:",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

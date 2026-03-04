@@ -40,14 +40,14 @@ func ParseRef(raw string) (Ref, error) {
 	path := raw[idx+1:]
 
 	switch prefix {
-	case "ps":
+	case "ps", "parameterstore":
 		if path == "" {
 			return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)
 		}
 		return Ref{Type: BackendTypePS, Path: path}, nil
 	case "psa":
 		return Ref{}, fmt.Errorf("psa: prefix is no longer supported; use ps: with --tier advanced instead")
-	case "sm":
+	case "sm", "secretsmanager":
 		if path == "" {
 			return Ref{}, fmt.Errorf("invalid ref %q: path is empty", raw)
 		}

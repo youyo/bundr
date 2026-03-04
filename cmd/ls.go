@@ -28,7 +28,7 @@ func (c *LsCmd) Run(appCtx *Context) error {
 
 	// sm: (empty path) lists all secrets without a prefix filter
 	var ref backend.Ref
-	if c.From == "sm:" {
+	if c.From == "sm:" || c.From == "secretsmanager:" {
 		ref = backend.Ref{Type: backend.BackendTypeSM, Path: ""}
 	} else {
 		var parseErr error

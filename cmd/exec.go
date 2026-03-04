@@ -59,7 +59,12 @@ type ExecCmd struct {
 
 // Run executes the exec command.
 func (c *ExecCmd) Run(appCtx *Context) error {
-	if len(c.Args) == 0 {
+	// Kong の passthrough タグは "--" セパレータ自体も Args に含めるため除去する
+	args := c.Args
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
+	if len(args) == 0 {
 		return fmt.Errorf("exec command failed: no command specified")
 	}
 
@@ -93,7 +98,7 @@ func (c *ExecCmd) Run(appCtx *Context) error {
 		env = append(env, k+"="+v)
 	}
 
-	exitCode, err := runner.Run(c.Args[0], c.Args[1:], env)
+	exitCode, err := runner.Run(args[0], args[1:], env)
 	if err != nil {
 		if exitCode != 0 {
 			return &ExitCodeError{Code: exitCode}
